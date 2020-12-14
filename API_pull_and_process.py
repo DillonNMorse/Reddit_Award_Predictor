@@ -11,6 +11,9 @@ import pprint
 import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
+import requests
+import numpy as np
+import json
 
 # Need to create a script that pulls and processes posts in batches. 
 
@@ -19,20 +22,43 @@ import matplotlib.pyplot as plt
 
 # First need to know what format the batches will come in. Lets start there.
 
-reddit = praw.Reddit(client_id = 'h8BBe0NNslxi8g', 
-                     client_secret = 'gd2EfD_bd9njZI9zngbiD1WhMJo8lA', 
-                     user_agent = 'Chrome:AwardPredictor:v0.0.1 (by /u/drdnm)')
-
-
-multi = reddit.subreddit('aww+history+askreddit')
-multi_hot = multi.hot(limit = 225)
+client_id = 'h8BBe0NNslxi8g'
+client_secret = 'gd2EfD_bd9njZI9zngbiD1WhMJo8lA'
+user_agent = 'Chrome:AwardPredictor:v0.0.1 (by /u/drdnm)'
 
 
 
-def pull_and_process(reddit_auth, subreddit_list, num_posts, how = 'rising'):
+
+# =============================================================================
+# reddit = praw.Reddit(client_id = client_id, 
+#                      client_secret = client_secret, 
+#                      user_agent = user_agent)
+# 
+# 
+# 
+# 
+# multi = reddit.subreddit('aww+history+askreddit')
+# multi_hot = multi.hot(limit = 225)
+# =============================================================================
+
+
+
+
+
+
+def pull_and_process(reddit_auth, subreddit_list, num_posts, 
+                     num_top_comments = 15, how = 'rising'
+                    ):
+    
+    reddit = praw.Reddit(client_id = client_id,
+                         client_secret = client_secret,
+                         user_agent = user_agent,
+                         )
     
     reddit_subs_to_pull = subreddit_list_to_string(subreddit_list)
-    subreddit_instance = reddit_subs_to_pull(limit = num_posts)
+    subreddit_instance = (reddit.subreddit(reddit_subs_to_pull)
+                                .rising(limit = num_posts)
+                         )
     
     all_submission_features = {}
     submission_batch = []
@@ -41,11 +67,14 @@ def pull_and_process(reddit_auth, subreddit_list, num_posts, how = 'rising'):
         submission_batch.append(subm)
         
         if ((subm_num + 1)%100 == 0) | (subm_num == num_posts - 1):
-            batch_features = submission_features(submission_batch, num_top_comments = 5)
+            batch_features = submission_features(submission_batch, num_top_comments)
             submission_batch = []
             all_submission_features.update(batch_features)
       
     return all_submission_features
+
+
+
 
 def subreddit_list_to_string(subreddit_list):
     subreddit_multi_name = ''
@@ -56,111 +85,84 @@ def subreddit_list_to_string(subreddit_list):
 
 
 
-def get_toplevel_comment_info(submission_batch, num_top_comments = 5):
-    
-    # 'num_top_level' controls the number of highest-upvoted top-level comments for which the replies will be counted
-    
-    t_del_1 = datetime.datetime.now()
-    
-    
-    # Delete all "more comments" entries to avoid errors - puts a cap on max number of comments retrieved
-    subm.comments.replace_more(limit = 0) 
-    
-    
-    t_del_2 = datetime.datetime.now()
-    t_del = (t_del_2 - t_del_1).total_seconds()
-    
-    
 
-    # List of features of interest to pull from the API
-    api_feat = {'Gilded': 'gilded',
-                'Gildings': 'gildings',
-                'Upvotes': 'ups',
-                'Downvotes': 'downs',
-                'Distinguished': 'distinguished',
-                'Edited': 'edited',
-                'Controversiality': 'controversiality',
-                'OP comment': 'is_submitter'
-               }
+def get_toplevel_comment_info(submission, num_top_comments = 15):
     
+    # Given a single submission, process its top 'num_top_comments' comments
     
+    # Set up authentication for Reddit API
+    #   Due to some rate-limiting, cannot practically use PRAW for comments
+    base_url = str('https://www.reddit.com/r/')
+    auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
+    headers = {'user-agent': user_agent}
     
-    t_feat_1 = datetime.datetime.now()
+    #Call the API with these params
+    params = {'context': 1,
+              'depth': 1,
+              'limit': num_top_comments,
+              'showedits': 0,
+              'showmore': 0,
+              'sort': 'top',
+              'threaded': 0,
+              'truncate': 50,
+              }
+    current_tstmp = datetime.datetime.now()
+    submission_id = str(submission.id)
+    submission_sub = str(submission.subreddit)
+    url = base_url + submission_sub + '/comments/' + submission_id + '.json'
+
+    # Call API
+    r = requests.get(url,
+                     params = params,
+                     auth = auth,
+                     headers = headers,
+                     )
     
+    # Convert json response to dictionary
+    comments_dict = json.loads(r.text)[1]['data']['children']
+
+    # Pull information from the set of fetched comments
+    #    Some are not currently being used, but could be useful in future
+    age = [(current_tstmp - 
+           datetime.datetime.fromtimestamp(comment['data']['created_utc'])
+           ).total_seconds()
+           for comment in comments_dict
+           ]
+    upvotes   = [comment['data']['ups'] for comment in comments_dict]
+   #downvotes = [comment['data']['downs'] for comment in comments_dict]
+    gilded    = [comment['data']['gilded'] for comment in comments_dict]
+   #gildings  = [comment['data']['gildings'] for comment in comments_dict]
+    disting   = [0 if comment['data']['distinguished'] is None else
+                 comment['data']['distinguished'] for comment in comments_dict
+                ]
     
+   #edited    = [comment['data']['edited'] for comment in comments_dict]
+   #controv   = [comment['data']['controversiality'] for comment in comments_dict]
+    op_comm   = [comment['data']['is_submitter'] for comment in comments_dict]
+    auth_prem = [comment['data']['author_premium']  for comment in comments_dict]
     
-    # Iterate through all comments to extract their features
-    max_number_of_comments = 3*num_top_comments
-    comment_features = {}
-    for comment_number, comment in enumerate(subm.comments):
-        if comment_number > max_number_of_comments:
-            break
-            
-        # For each comment build a dict to hold its features, indexed by comment id
-        ID = comment.id
-        comment_features[ID] = {}
-        for feat_name in api_feat:
-            comment_features[ID][feat_name] = comment.__dict__[api_feat[feat_name]]
-               
-        # Calculate age of comment (in minutes)
-        comment_dtime = datetime.datetime.fromtimestamp(comment.created_utc)
-        now_dtime = datetime.datetime.now()
-        comment_features[ID]['Age'] = (now_dtime - comment_dtime).total_seconds()/60
+# =============================================================================
+# =============================================================================
+# #    auth premium sometimes throws KeyError where 'author_premium' is apparently missing
+# #         need to write custom function with some try-except statements
+# =============================================================================
+# =============================================================================
+    
+    # Use the above to calculate summary info about comment section for submission
+    up_rate = [ups/time for ups,time in zip(upvotes, age)]
+    
+    if len(up_rate) == 0:
+        Avg_up_rate = None
+        Std_up_rate = None
+    else:
+        Avg_up_rate = sum(up_rate)/len(up_rate)
+        Std_up_rate = sum([(up - Avg_up_rate)**2 for up in up_rate])/len(up_rate)
         
-        # Calculate upvote rate (per minute)
-        comment_features[ID]['Upvote rate'] = comment_features[ID]['Upvotes']/comment_features[ID]['Age']
-
-    
-    
-    t_feat_2 = datetime.datetime.now()
-    t_feat = (t_feat_2 - t_feat_1).total_seconds()
-    
-    t_reply_1 = datetime.datetime.now()
-
-    
-    
-    # Calculate average number of 2nd-level replies for top comments:
-    #    (number of comments controlled by 'num_top_level' variable)
-    
-    #     First need to order the top-level comments by upvotes in order to grab the top ones
-    ups = [(ID, comment_features[ID]['Upvotes']) for ID in comment_features]
-    ups_by_comme = (pd.DataFrame(ups)
-                      .rename(columns = {0:'Comment ID', 1: 'Comment Ups'})
-                      .sort_values(by = 'Comment Ups', ascending = False)
-                      .iloc[:num_top_comments,:]
-                      .reset_index(drop = True)
-                   )
-    #     For each of the top-n comments now grab all replies and count them up 
-    num_replies = [(comment.id, len(comment.replies.__dict__['_comments'])) 
-                   for comment in subm.comments.__dict__['_comments'] 
-                   if comment.id in ups_by_comme['Comment ID'].to_list()
-                  ]
-    num_replies = (pd.DataFrame(num_replies)
-                     .rename(columns = {0:'Comment ID', 1:'Num Replies'})    
-                  )
-    #     Merge these on the 'Comment ID' column
-    top_comment_performance = ups_by_comme.merge(num_replies, on = 'Comment ID')
-    
-    #     Calculate the number of upvotes per minute and replies per minute since the comment was created
-    top_comment_performance['Upvote rate'] = [top_comment_performance.loc[j, 'Comment Ups'] /
-                                              comment_features[top_comment_performance.loc[j, 'Comment ID']]['Age']
-                                              for j in top_comment_performance.index
-                                             ]
-    top_comment_performance['Reply rate'] = [top_comment_performance.loc[j, 'Num Replies'] /
-                                              comment_features[top_comment_performance.loc[j, 'Comment ID']]['Age']
-                                              for j in top_comment_performance.index
-                                             ]
-    #     Calculate average and standard deviation of the rates, append them to the feature dictionary
-    Avg_up_rate = top_comment_performance['Upvote rate'].mean()
-    Std_up_rate = top_comment_performance['Upvote rate'].std()
-    Avg_reply_rate = top_comment_performance['Reply rate'].mean()
-    Std_reply_rate = top_comment_performance['Reply rate'].std()
-    
-    
-    
-    t_reply_2 = datetime.datetime.now()
-    t_reply = (t_reply_2 - t_reply_1).total_seconds()
-    
+    num_gildings = sum(gilded)
+    num_disting = sum(disting)
+    num_op_comments = sum(op_comm)
+    num_premiums = sum(auth_prem)
+        
     
     # There is an opportunity to create more features out of the comments. These could include:
     #    explore the success of comments/replies made by the submitter of the original post
@@ -168,9 +170,34 @@ def get_toplevel_comment_info(submission_batch, num_top_comments = 5):
     #    look at the average controversiality among comments or replies to comments
     #    calculate the rate of gildings among comments and/or comment replies
     
-    return Avg_up_rate, Std_up_rate, Avg_reply_rate, Std_reply_rate, t_feat, t_reply, t_del
+    return Avg_up_rate, Std_up_rate, num_gildings, num_disting, num_op_comments, num_premiums
 
 
+
+def process_comments_for_batch(submission_batch, num_top_comments = 15):
+    # Set up dictionary to hold data, indexed by individual Reddit submissions
+    batch_comment_summaries = {}
+    
+    # Iterate through all submissions in the batch
+    for submission in submission_batch:
+        # Create a dictionary to hold data for each individual summary
+        batch_comment_summaries[submission] = {}
+        
+        # Call function to process comment data for single submissions
+        (avg_up, std_up, gild,
+         disting, op_comms, premiums
+        ) = get_toplevel_comment_info(submission, num_top_comments)
+    
+        # Assign to dictionary
+        batch_comment_summaries[submission]['Avg_up_rate'] = avg_up
+        batch_comment_summaries[submission]['Std_up_rate'] = std_up
+        batch_comment_summaries[submission]['Num_gildings'] = gild
+        batch_comment_summaries[submission]['Num_distinguished'] = disting
+        batch_comment_summaries[submission]['Num_Op_Comments'] = op_comms
+        batch_comment_summaries[submission]['Num_premium_auths'] = premiums
+        
+        
+    return batch_comment_summaries
 
 
 
@@ -204,8 +231,9 @@ api_feat = {'Title': 'title',
             'Subreddit': 'subreddit',
            }
 
-def submission_features(submission_batch, num_top_comments = 5, api_feat = api_feat):
-    
+def submission_features(submission_batch, num_top_comments = 15, api_feat = api_feat):
+    # Initialize dictionary to hold features for whole batch of Reddit submissions
+    batch_features = {}
     # Iterate over each submission in the batch. The entire batch has already
     #    been pulled by the API, so they will now just be processed.
     for subm in submission_batch:
@@ -228,36 +256,41 @@ def submission_features(submission_batch, num_top_comments = 5, api_feat = api_f
         # Calculate upvotes per minute of age and comments per minute of age
         features['Upvote rate'] = features['Upvotes']/features['Post age']
         features['Comment rate'] = features['Comments']/features['Post age']
+        
+        
+        # Call function to process comment data for single submissions
+        (avg_up, std_up, gild, disting,
+         op_comms, premiums) = get_toplevel_comment_info(subm, num_top_comments)
     
+        # Assign to dictionary
+        features['Avg top comments up rate'] = avg_up
+        features['Std top comments up rate'] = std_up
+        features['Num top comment gildings'] = gild
+        features['Num top comment distinguished'] = disting
+        features['Num op Comments'] = op_comms
+        features['Num top comment premium auths'] = premiums
+
+        # Append this submission's feature to the set of all features for the batch
+        batch_features[subm] = features
     
+    return batch_features
 
-# =============================================================================
-#   Extract and process comments
-# =============================================================================
 
-# =============================================================================
-#   Pulling comments takes approx 1-2 seconds per submission, too slow.
-#   Need to find a way to batch-pull top-n comments simultanesously from all 
-#   100 submissions in the submission_batch. Until then I will not process
-#   any comments.
-#   
-#   The PSAW api-wrapper for pushift.io (https://github.com/dmarx/psaw) might
-#   be able to help since it can "use pushshift search to fetch ids and then 
-#   use praw to fetch objects." This will be further explored as an option
-#   for speeding up the process.
-# =============================================================================
 
-# =============================================================================
-#     if subm.num_comments == 0:
-#         Avg_up_rate, Std_up_rate, Avg_reply_rate, Std_reply_rate = (0, 0, 0, 0)
-#     else:
-#         Avg_up_rate, Std_up_rate, Avg_reply_rate, Std_reply_rate, t_feat, t_reply, t_del = get_toplevel_comment_info(subm, num_top_comments)
-#     
-#     features['Avg top comments up rate'] = Avg_up_rate
-#     features['Std top comments up rate'] = Std_up_rate
-#     features['Avg top comments reply rate'] = Avg_reply_rate
-#     features['Std top comments reply rate'] = Std_reply_rate
-# =============================================================================
 
+if __name__ == '__main__':
     
-    return features
+    t0 = datetime.datetime.now()
+    
+    subreddit_list = ['aww', 'history', 'askreddit']
+    data = pull_and_process(reddit_auth = 1,
+                            subreddit_list = subreddit_list,
+                            num_posts = 100,
+                            how = 'rising',
+                            num_top_comments = 5
+                           )
+    df = pd.DataFrame(data).transpose()
+    
+    t1 = datetime.datetime.now()
+    
+    print('Total time was {:.2f} seconds to process all submissions.'.format((t1-t0).total_seconds()))
