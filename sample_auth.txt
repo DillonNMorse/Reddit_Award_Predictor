@@ -1,0 +1,8 @@
+client_id = *your_client_id_here*
+client_secret = *your_client_secret_here*
+user_agent = *your_user_agent_here*
+
+
+# Rename this file to 'auth.txt' and insert your credentials above.
+# Your credentials should /not/ be formatted strings.
+# e.g.: client_id = 112233445566
