@@ -22,9 +22,11 @@ import json
 
 # First need to know what format the batches will come in. Lets start there.
 
-client_id = 'h8BBe0NNslxi8g'
-client_secret = 'gd2EfD_bd9njZI9zngbiD1WhMJo8lA'
-user_agent = 'Chrome:AwardPredictor:v0.0.1 (by /u/drdnm)'
+# =============================================================================
+# client_id = 'h8BBe0NNslxi8g'
+# client_secret = 'gd2EfD_bd9njZI9zngbiD1WhMJo8lA'
+# user_agent = 'Chrome:AwardPredictor:v0.0.1 (by /u/drdnm)'
+# =============================================================================
 
 
 
@@ -42,17 +44,30 @@ user_agent = 'Chrome:AwardPredictor:v0.0.1 (by /u/drdnm)'
 # =============================================================================
 
 
+def create_auth_dict(reddit_auth_file):
+    
+    auth = {}
+    f = open(reddit_auth_file, "r")
+    for var, line in enumerate(f):
+        if var >= 3:
+            break
+        variable_name = line.split('=')[0].strip()
+        variable_value = line.split('=')[1].strip()
+        auth[variable_name] = variable_value
+    f.close()     
+    
+    return auth
 
 
-
-
-def pull_and_process(reddit_auth, subreddit_list, num_posts, 
+def pull_and_process(reddit_auth_file, subreddit_list, num_posts, 
                      num_top_comments = 15, how = 'rising'
                     ):
     
-    reddit = praw.Reddit(client_id = client_id,
-                         client_secret = client_secret,
-                         user_agent = user_agent,
+    auth_dict = create_auth_dict(reddit_auth_file)
+    
+    reddit = praw.Reddit(client_id = auth_dict['client_id'],
+                         client_secret = auth_dict['client_secret'],
+                         user_agent = auth_dict['user_agent'],
                          )
     
     reddit_subs_to_pull = subreddit_list_to_string(subreddit_list)
@@ -68,7 +83,10 @@ def pull_and_process(reddit_auth, subreddit_list, num_posts,
         submission_batch.append(subm)
         
         if ((subm_num + 1)%100 == 0) | (subm_num == num_posts - 1):
-            batch_features = submission_features(submission_batch, num_top_comments)
+            batch_features = submission_features(auth_dict,
+                                                 submission_batch,
+                                                 num_top_comments,
+                                                )
             submission_batch = []
             all_submission_features.update(batch_features)
       
@@ -89,15 +107,17 @@ def subreddit_list_to_string(subreddit_list):
 
 
 
-def get_toplevel_comment_info(submission, num_top_comments = 15):
+def get_toplevel_comment_info(auth_dict, submission, num_top_comments = 15):
     
     # Given a single submission, process its top 'num_top_comments' comments
     
     # Set up authentication for Reddit API
     #   Due to some rate-limiting, cannot practically use PRAW for comments
     base_url = str('https://www.reddit.com/r/')
-    auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
-    headers = {'user-agent': user_agent}
+    auth = requests.auth.HTTPBasicAuth(auth_dict['client_id'],
+                                       auth_dict['client_secret'],
+                                       )
+    headers = {'user-agent': auth_dict['user_agent']}
     
     #Call the API with these params
     params = {'context': 1,
@@ -109,7 +129,7 @@ def get_toplevel_comment_info(submission, num_top_comments = 15):
               'threaded': 0,
               'truncate': 50,
               }
-    current_tstmp = datetime.datetime.now()
+    current_tstmp = datetime.datetime.utcnow()
     submission_id = str(submission.id)
     submission_sub = str(submission.subreddit)
     url = base_url + submission_sub + '/comments/' + submission_id + '.json'
@@ -149,7 +169,7 @@ def get_toplevel_comment_info(submission, num_top_comments = 15):
 
     
     # Use the above to calculate summary info about comment section for submission
-    current_dtime = datetime.datetime.now()
+    current_dtime = datetime.datetime.utcnow()
     age = [(current_dtime - datetime.datetime.fromtimestamp(time)).total_seconds() 
            for time in created
           ]
@@ -259,7 +279,9 @@ api_feat = {'Title': 'title',
             'Subreddit': 'subreddit',
            }
 
-def submission_features(submission_batch, num_top_comments = 15, api_feat = api_feat):
+def submission_features(auth_dict, submission_batch, 
+                        num_top_comments = 15, api_feat = api_feat
+                       ):
     # Initialize dictionary to hold features for whole batch of Reddit submissions
     batch_features = {}
     # Iterate over each submission in the batch. The entire batch has already
@@ -279,7 +301,7 @@ def submission_features(submission_batch, num_top_comments = 15, api_feat = api_
         features['Post time'] = dtime_posted.hour*60 + dtime_posted.minute
         
         # Calculate age of the post (in minutes)
-        features['Post age'] = (datetime.datetime.now() - dtime_posted).total_seconds()/60
+        features['Post age'] = (datetime.datetime.utcnow() - dtime_posted).total_seconds()/60
         
         # Calculate upvotes per minute of age and comments per minute of age
         features['Upvote rate'] = features['Upvotes']/features['Post age']
@@ -289,7 +311,7 @@ def submission_features(submission_batch, num_top_comments = 15, api_feat = api_
         # Call function to process comment data for single submissions
         (Avg_up_rate, Std_up_rate, gild_rate, distinguished_rate,
             op_comment_rate, premium_auth_rate,
-        ) = get_toplevel_comment_info(subm, num_top_comments)
+        ) = get_toplevel_comment_info(auth_dict, subm, num_top_comments)
     
         # Assign to dictionary
         features['Avg top comments up rate'] = Avg_up_rate
@@ -309,7 +331,7 @@ def submission_features(submission_batch, num_top_comments = 15, api_feat = api_
 
 if __name__ == '__main__':
     
-    t0 = datetime.datetime.now()
+    t0 = datetime.datetime.utcnow()
     
     subreddit_list = ['aww',
                       'history',
@@ -372,17 +394,34 @@ if __name__ == '__main__':
                       'programming',
                       'entertainment',
                      ]
-    data = pull_and_process(reddit_auth = 1,
+    
+    
+    sortedby = 'new'
+    num_posts = 5
+    num_top_comments = 10
+    
+    data = pull_and_process(reddit_auth_file = 'auth.txt',
                             subreddit_list = subreddit_list,
-                            num_posts = 700,
-                            how = 'rising',
-                            num_top_comments = 10
+                            num_posts = num_posts,
+                            how = sortedby,
+                            num_top_comments = num_top_comments
                            )
     df = pd.DataFrame(data).transpose()
-    df.to_pickle('./data/12-15_at_1938est_sortby_rising_use_10comms.pkl')
+    t1 = datetime.datetime.utcnow()
     
-    t1 = datetime.datetime.now()
+    path = './data/'
+    month, day, hour, minute  = [ '0' + str(getattr(t1, k)) 
+                                 if len(str(getattr(t1, k))) == 1
+                                 else str(getattr(t1, k))
+                                 for k in ['month', 'day', 'hour', 'minute']
+                                ]
+    filename = (month + '-' + day + '_at_' + hour + minute + 'utc_sortedby_' 
+                + sortedby + '_using_' + str(num_top_comments) + '_comments.pkl'
+               )
+    
+    df.to_pickle(path + filename)
+    
+    
     
     print('Total time was {:.2f} seconds to process all submissions.'.format((t1-t0).total_seconds()))
     print('\nPulled {} submissions.'.format(df.shape[0]))
-    plt.hist(df['Subreddit'])
