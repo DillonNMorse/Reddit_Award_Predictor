@@ -56,9 +56,10 @@ def pull_and_process(reddit_auth, subreddit_list, num_posts,
                          )
     
     reddit_subs_to_pull = subreddit_list_to_string(subreddit_list)
-    subreddit_instance = (reddit.subreddit(reddit_subs_to_pull)
-                                .rising(limit = num_posts)
-                         )
+    subreddit_instance = getattr(reddit.subreddit(reddit_subs_to_pull),
+                                 how
+                                )(limit = num_posts)
+                         
     
     all_submission_features = {}
     submission_batch = []
@@ -72,6 +73,8 @@ def pull_and_process(reddit_auth, subreddit_list, num_posts,
             all_submission_features.update(batch_features)
       
     return all_submission_features
+
+
 
 
 
@@ -120,48 +123,52 @@ def get_toplevel_comment_info(submission, num_top_comments = 15):
     
     # Convert json response to dictionary
     comments_dict = json.loads(r.text)[1]['data']['children']
+    num_comments = len(comments_dict)
 
-    # Pull information from the set of fetched comments
-    #    Some are not currently being used, but could be useful in future
-    age = [(current_tstmp - 
-           datetime.datetime.fromtimestamp(comment['data']['created_utc'])
-           ).total_seconds()
-           for comment in comments_dict
-           ]
-    upvotes   = [comment['data']['ups'] for comment in comments_dict]
-   #downvotes = [comment['data']['downs'] for comment in comments_dict]
-    gilded    = [comment['data']['gilded'] for comment in comments_dict]
-   #gildings  = [comment['data']['gildings'] for comment in comments_dict]
-    disting   = [0 if comment['data']['distinguished'] is None else
-                 comment['data']['distinguished'] for comment in comments_dict
+
+    created =   [comment_value(comment['data'], 'created_utc')
+                 for comment in comments_dict
                 ]
-    
-   #edited    = [comment['data']['edited'] for comment in comments_dict]
-   #controv   = [comment['data']['controversiality'] for comment in comments_dict]
-    op_comm   = [comment['data']['is_submitter'] for comment in comments_dict]
-    auth_prem = [comment['data']['author_premium']  for comment in comments_dict]
-    
-# =============================================================================
-# =============================================================================
-# #    auth premium sometimes throws KeyError where 'author_premium' is apparently missing
-# #         need to write custom function with some try-except statements
-# =============================================================================
-# =============================================================================
+    upvotes =   [comment_value(comment['data'], 'ups')
+                 for comment in comments_dict
+                ]
+    gilded  =   [comment_value(comment['data'], 'gilded')
+                 for comment in comments_dict
+                ]
+    disting =   [comment_value(comment['data'], 'distinguished')
+                 for comment in comments_dict
+                ]
+    op_comm =   [comment_value(comment['data'], 'is_submitter')
+                 for comment in comments_dict
+                ]
+    auth_prem = [comment_value(comment['data'], 'author_premium')
+                 for comment in comments_dict
+                ] 
+
+
+
     
     # Use the above to calculate summary info about comment section for submission
-    up_rate = [ups/time for ups,time in zip(upvotes, age)]
+    current_dtime = datetime.datetime.now()
+    age = [(current_dtime - datetime.datetime.fromtimestamp(time)).total_seconds() 
+           for time in created
+          ]
     
-    if len(up_rate) == 0:
-        Avg_up_rate = None
-        Std_up_rate = None
+    up_rate = [ups/time for ups,time in zip(upvotes, age)]
+    if num_comments == 0:
+        Avg_up_rate = 0
+        Std_up_rate = 0
+        gild_rate = 0
+        distinguished_rate = 0
+        op_comment_rate = 0
+        premium_auth_rate = 0
     else:
-        Avg_up_rate = sum(up_rate)/len(up_rate)
-        Std_up_rate = sum([(up - Avg_up_rate)**2 for up in up_rate])/len(up_rate)
-        
-    num_gildings = sum(gilded)
-    num_disting = sum(disting)
-    num_op_comments = sum(op_comm)
-    num_premiums = sum(auth_prem)
+        Avg_up_rate = sum(up_rate)/num_comments
+        Std_up_rate = sum([(up - Avg_up_rate)**2 for up in up_rate])/num_comments        
+        gild_rate          = sum(gilded)/num_comments
+        distinguished_rate = sum(disting)/num_comments
+        op_comment_rate    = sum(op_comm)/num_comments
+        premium_auth_rate  = sum(auth_prem)/num_comments
         
     
     # There is an opportunity to create more features out of the comments. These could include:
@@ -170,34 +177,55 @@ def get_toplevel_comment_info(submission, num_top_comments = 15):
     #    look at the average controversiality among comments or replies to comments
     #    calculate the rate of gildings among comments and/or comment replies
     
-    return Avg_up_rate, Std_up_rate, num_gildings, num_disting, num_op_comments, num_premiums
+    return (Avg_up_rate, Std_up_rate, gild_rate, distinguished_rate,
+            op_comment_rate, premium_auth_rate,
+           )
 
 
 
-def process_comments_for_batch(submission_batch, num_top_comments = 15):
-    # Set up dictionary to hold data, indexed by individual Reddit submissions
-    batch_comment_summaries = {}
-    
-    # Iterate through all submissions in the batch
-    for submission in submission_batch:
-        # Create a dictionary to hold data for each individual summary
-        batch_comment_summaries[submission] = {}
-        
-        # Call function to process comment data for single submissions
-        (avg_up, std_up, gild,
-         disting, op_comms, premiums
-        ) = get_toplevel_comment_info(submission, num_top_comments)
-    
-        # Assign to dictionary
-        batch_comment_summaries[submission]['Avg_up_rate'] = avg_up
-        batch_comment_summaries[submission]['Std_up_rate'] = std_up
-        batch_comment_summaries[submission]['Num_gildings'] = gild
-        batch_comment_summaries[submission]['Num_distinguished'] = disting
-        batch_comment_summaries[submission]['Num_Op_Comments'] = op_comms
-        batch_comment_summaries[submission]['Num_premium_auths'] = premiums
-        
-        
-    return batch_comment_summaries
+def comment_value(data, feature):
+    try:
+        value = data[feature]
+        if value == None:
+            value = 0
+        elif (feature == 'distinguished') & (value == 'moderator'):
+            value = 1
+        elif (feature == 'distinguished') & (value == 'admin'):
+            value = 1            
+    except KeyError:
+        value = 0   
+    return value
+
+
+
+
+
+# =============================================================================
+# def process_comments_for_batch(submission_batch, num_top_comments = 15):
+#     # Set up dictionary to hold data, indexed by individual Reddit submissions
+#     batch_comment_summaries = {}
+#     
+#     # Iterate through all submissions in the batch
+#     for submission in submission_batch:
+#         # Create a dictionary to hold data for each individual summary
+#         batch_comment_summaries[submission] = {}
+#         
+#         # Call function to process comment data for single submissions
+#         (Avg_up_rate, Std_up_rate, gild_rate, distinguished_rate,
+#             op_comment_rate, premium_auth_rate,
+#         ) = get_toplevel_comment_info(submission, num_top_comments)
+#     
+#         # Assign to dictionary
+#         batch_comment_summaries[submission]['Avg_up_rate'] = Avg_up_rate
+#         batch_comment_summaries[submission]['Std_up_rate'] = Std_up_rate
+#         batch_comment_summaries[submission]['Gild_rate'] = gild_rate
+#         batch_comment_summaries[submission]['Distinguished_rate'] = distinguished_rate
+#         batch_comment_summaries[submission]['Op_comment_rate'] = op_comment_rate
+#         batch_comment_summaries[submission]['Premium_auth_rate'] = premium_auth_rate
+#         
+#         
+#     return batch_comment_summaries
+# =============================================================================
 
 
 
@@ -259,16 +287,17 @@ def submission_features(submission_batch, num_top_comments = 15, api_feat = api_
         
         
         # Call function to process comment data for single submissions
-        (avg_up, std_up, gild, disting,
-         op_comms, premiums) = get_toplevel_comment_info(subm, num_top_comments)
+        (Avg_up_rate, Std_up_rate, gild_rate, distinguished_rate,
+            op_comment_rate, premium_auth_rate,
+        ) = get_toplevel_comment_info(subm, num_top_comments)
     
         # Assign to dictionary
-        features['Avg top comments up rate'] = avg_up
-        features['Std top comments up rate'] = std_up
-        features['Num top comment gildings'] = gild
-        features['Num top comment distinguished'] = disting
-        features['Num op Comments'] = op_comms
-        features['Num top comment premium auths'] = premiums
+        features['Avg top comments up rate'] = Avg_up_rate
+        features['Std top comments up rate'] = Std_up_rate
+        features['Gilded rate'] = gild_rate
+        features['Distinguished rate'] = distinguished_rate
+        features['Op comment rate'] = op_comment_rate
+        features['Premium author rate'] = premium_auth_rate
 
         # Append this submission's feature to the set of all features for the batch
         batch_features[subm] = features
@@ -282,15 +311,78 @@ if __name__ == '__main__':
     
     t0 = datetime.datetime.now()
     
-    subreddit_list = ['aww', 'history', 'askreddit']
+    subreddit_list = ['aww',
+                      'history',
+                      'askreddit',
+                      'funny',
+                      'announcements',
+                      'pics',
+                      'todayilearned',
+                      'science',
+                      'iama',
+                      'blog',
+                      'videos',
+                      'worldnews',
+                      'gaming',
+                      'movies',
+                      'music',
+                      'news',
+                      'gifs',
+                      'askscience',
+                      'explainlikeimfive',
+                      'earthporn',
+                      'books',
+                      'television',
+                      'lifeprotips',
+                      'sports',
+                      'diy',
+                      'showerthoughts',
+                      'space',
+                      'jokes',
+                      'tifu',
+                      'food',
+                      'photoshopbattles',
+                      'art',
+                      'internetisbeautiful',
+                      'mildlyinteresting',
+                      'getmotivated',
+                      'history',
+                      'nottheonion',
+                      'gadgets',
+                      'dataisbeautiful',
+                      'futurology',
+                      'documentaries',
+                      'listentothis',
+                      'personalfinance'
+                      'philosophy',
+                      'nosleep',
+                      'creepy',
+                      'oldschoolcool',
+                      'upliftingnews',
+                      'writingprompts',
+                      'twoxchromosone',
+                      'fermentation',
+                      'spicy',
+                      'fitness',
+                      'technology',
+                      'bestof',
+                      'adviceanimals',
+                      'politics',
+                      'atheism',
+                      'programming',
+                      'entertainment',
+                     ]
     data = pull_and_process(reddit_auth = 1,
                             subreddit_list = subreddit_list,
-                            num_posts = 100,
+                            num_posts = 700,
                             how = 'rising',
-                            num_top_comments = 5
+                            num_top_comments = 10
                            )
     df = pd.DataFrame(data).transpose()
+    df.to_pickle('./data/12-15_at_1938est_sortby_rising_use_10comms.pkl')
     
     t1 = datetime.datetime.now()
     
     print('Total time was {:.2f} seconds to process all submissions.'.format((t1-t0).total_seconds()))
+    print('\nPulled {} submissions.'.format(df.shape[0]))
+    plt.hist(df['Subreddit'])
