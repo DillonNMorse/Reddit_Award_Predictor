@@ -293,8 +293,14 @@ def submission_features(auth_dict, submission_batch,
             features[feat_name] = subm.__dict__[api_feat[feat_name]]
     
         # Extract author and subreddit names as strings
-        features['Author'] = features['Author'].name
-        features['Subreddit'] = features['Subreddit'].display_name
+        try:
+            features['Author'] = features['Author'].name
+        except AttributeError:
+            features['Author'] = None
+        try:
+            features['Subreddit'] = features['Subreddit'].display_name
+        except AttributeError:
+            features['Subreddit'] = None
         
         # Convert UTC timestamp to time of day (in minutes since beginning of UTC day)
         dtime_posted = datetime.datetime.fromtimestamp(features['Post time'])
