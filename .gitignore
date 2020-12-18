@@ -1,5 +1,5 @@
 data/
-*auth.txt
+auth.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
