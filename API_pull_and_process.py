@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import requests
 import numpy as np
 import json
+import os
 
 # Need to create a script that pulls and processes posts in batches. 
 
@@ -404,33 +405,59 @@ subreddit_list = ['aww',
 def get_reddit_submissions(sortedby = 'new', num_posts = 500, num_top_comments = 10,
                            subreddit_list = subreddit_list, reddit_auth_file = 'auth.txt',
                           ):
-   
-    t0 = dt.utcnow()   
-
-
+    for how in sortedby:
+        t0 = dt.utcnow()   
     
-    data = pull_and_process(reddit_auth_file = reddit_auth_file,
-                            subreddit_list = subreddit_list,
-                            num_posts = num_posts,
-                            how = sortedby,
-                            num_top_comments = num_top_comments
-                           )
-    df = pd.DataFrame(data).transpose()
+        data = pull_and_process(reddit_auth_file = reddit_auth_file,
+                                subreddit_list = subreddit_list,
+                                num_posts = num_posts,
+                                how = how,
+                                num_top_comments = num_top_comments
+                               )
+        df = pd.DataFrame(data).transpose()
+        
+        t1 = dt.utcnow()
+    
+        path = './data/'
+        fname = build_filename(sort_and_comments = True,
+                               sortedby = how,
+                               num_top_comments = num_top_comments,
+                               )
+        file_path = os.path.join(path, fname)
+        df.to_pickle(file_path)
+        
+        print('Total time was {:.2f} seconds to process all submissions.'
+              .format((t1-t0).total_seconds())
+             )
+        print('Pulled {} submissions sorted by {}. \n'.format(df.shape[0], sortedby))
+    
+    return None
+
+
+def build_filename(sort_and_comments = False, sortedby = None, num_top_comments = None):
     t1 = dt.utcnow()
-    
-    path = './data/'
+
     month, day, hour, minute  = [ '0' + str(getattr(t1, k)) 
                                  if len(str(getattr(t1, k))) == 1
                                  else str(getattr(t1, k))
                                  for k in ['month', 'day', 'hour', 'minute']
                                 ]
-    filename = (month + '-' + day + '_at_' + hour + minute + 'utc_sortedby_' 
-                + sortedby + '_using_' + str(num_top_comments) + '_comments.pkl'
-               )
+    filename_dtime = month + '-' + day + '_at_' + hour + minute + 'utc'
     
-    df.to_pickle(path + filename)
+# =============================================================================
+#     print('filename_dtime: ', filename_dtime, 'Type: ', type(filename_dtime), '\n')
+#     print('sortedby: ', sortedby, 'Type: ', type(sortedby), '\n')
+#     print('str(num_top_comments): ', str(num_top_comments), 'Type: ', type(str(num_top_comments)), '\n')
+# =============================================================================
+    
+    if sort_and_comments:
+        filename = ( filename_dtime + 
+                    '_sortedby_' + sortedby + 
+                    '_using_' + str(num_top_comments) + '_comments' +
+                    '.pkl'
+                    )
+    else:
+        filename = filename_dtime + '.pkl'
     
     
-    
-    print('Total time was {:.2f} seconds to process all submissions.'.format((t1-t0).total_seconds()))
-    print('Pulled {} submissions sorted by {}. \n'.format(df.shape[0], sortedby))
+    return filename
