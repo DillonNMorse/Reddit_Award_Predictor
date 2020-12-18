@@ -404,7 +404,11 @@ subreddit_list = ['aww',
     
 def get_reddit_submissions(sortedby = 'new', num_posts = 500, num_top_comments = 10,
                            subreddit_list = subreddit_list, reddit_auth_file = 'auth.txt',
+                           savepath = './data/'
                           ):
+    if not os.path.isdir(savepath):
+        os.mkdir(savepath)
+    
     for how in sortedby:
         t0 = dt.utcnow()   
     
@@ -417,19 +421,18 @@ def get_reddit_submissions(sortedby = 'new', num_posts = 500, num_top_comments =
         df = pd.DataFrame(data).transpose()
         
         t1 = dt.utcnow()
-    
-        path = './data/'
+
         fname = build_filename(sort_and_comments = True,
                                sortedby = how,
                                num_top_comments = num_top_comments,
                                )
-        file_path = os.path.join(path, fname)
+        file_path = os.path.join(savepath, fname)
         df.to_pickle(file_path)
         
         print('Total time was {:.2f} seconds to process all submissions.'
               .format((t1-t0).total_seconds())
              )
-        print('Pulled {} submissions sorted by {}. \n'.format(df.shape[0], sortedby))
+        print('Pulled {} submissions sorted by {}. \n'.format(df.shape[0], how))
     
     return None
 
