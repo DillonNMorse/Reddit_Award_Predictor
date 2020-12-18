@@ -46,17 +46,39 @@ def combine_data(data_path = './data'):
     # Create directory for combined dataframe if need be
     if not os.path.isdir(combined_dframe_path):
         os.mkdir(combined_dframe_path)
-    
+
     # Combine all dataframes in list, remove dubplicates
     df = pd.concat(dataframes)
     df = df[~df.index.duplicated(keep='first')]
+    
+
+    # Remove entries which are already gilded
+    num_gilds = df['Gildings'].apply(lambda x: count_gildings(x))
+    gildings_bool_mask = num_gilds == 0
+    df = df[gildings_bool_mask]
     
     # Store combined file to drive
     df.to_pickle(os.path.join(combined_dframe_path, combined_filename))
     
     return print('All current data merged at {} UTC.'.format(hour + minute))
 
-
+def count_gildings(gild_dict):
+    
+    # Count number of gold plus platinums awarded
+    try:
+        silvers = gild_dict['gid_1']
+    except KeyError:
+        silvers = 0
+    try:
+        golds = gild_dict['gid_2']
+    except KeyError:
+        golds = 0
+    try:
+        platinums = gild_dict['gid_3']
+    except KeyError:
+        platinums = 0
+        
+    return golds + platinums
 
 
 
