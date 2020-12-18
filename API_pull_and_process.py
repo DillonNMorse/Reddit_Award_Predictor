@@ -15,6 +15,7 @@ import requests
 import numpy as np
 import json
 import os
+import time
 
 # Need to create a script that pulls and processes posts in batches. 
 
@@ -410,31 +411,50 @@ def get_reddit_submissions(sortedby = 'new', num_posts = 500, num_top_comments =
         os.mkdir(savepath)
     
     for how in sortedby:
-        t0 = dt.utcnow()   
-    
-        data = pull_and_process(reddit_auth_file = reddit_auth_file,
-                                subreddit_list = subreddit_list,
-                                num_posts = num_posts,
-                                how = how,
-                                num_top_comments = num_top_comments
-                               )
-        df = pd.DataFrame(data).transpose()
+        t0 = dt.utcnow() 
         
-        t1 = dt.utcnow()
-
-        fname = build_filename(sort_and_comments = True,
-                               sortedby = how,
-                               num_top_comments = num_top_comments,
-                               )
-        file_path = os.path.join(savepath, fname)
-        df.to_pickle(file_path)
+        num_tries = 0
+        while True:
+            num_tries += 1
+            if num_tries > 3:
+                print('Unable to pull submissions for {} at {} utc'
+                      .format(how, t0)
+                     )
+                break
+            try:
+                data = pull_and_process(reddit_auth_file = reddit_auth_file,
+                                        subreddit_list = subreddit_list,
+                                        num_posts = num_posts,
+                                        how = how,
+                                        num_top_comments = num_top_comments
+                                       )
+                df = pd.DataFrame(data).transpose()
+                
+                t1 = dt.utcnow()
         
-        print('Total time was {:.2f} seconds to process all submissions.'
-              .format((t1-t0).total_seconds())
-             )
-        print('Pulled {} submissions sorted by {}. \n'.format(df.shape[0], how))
+                fname = build_filename(sort_and_comments = True,
+                                       sortedby = how,
+                                       num_top_comments = num_top_comments,
+                                       )
+                file_path = os.path.join(savepath, fname)
+                df.to_pickle(file_path)
+                
+                print('Total time was {:.2f} seconds to process all submissions.'
+                      .format((t1-t0).total_seconds())
+                     )
+                print('Pulled {} submissions sorted by {}. \n'
+                      .format(df.shape[0], how)
+                     )
+                break
+            except:
+                time.sleep(60)
+        time.sleep(30)
+                
     
     return None
+
+
+
 
 
 def build_filename(sort_and_comments = False, sortedby = None, num_top_comments = None):
@@ -446,12 +466,7 @@ def build_filename(sort_and_comments = False, sortedby = None, num_top_comments 
                                  for k in ['month', 'day', 'hour', 'minute']
                                 ]
     filename_dtime = month + '-' + day + '_at_' + hour + minute + 'utc'
-    
-# =============================================================================
-#     print('filename_dtime: ', filename_dtime, 'Type: ', type(filename_dtime), '\n')
-#     print('sortedby: ', sortedby, 'Type: ', type(sortedby), '\n')
-#     print('str(num_top_comments): ', str(num_top_comments), 'Type: ', type(str(num_top_comments)), '\n')
-# =============================================================================
+
     
     if sort_and_comments:
         filename = ( filename_dtime + 
