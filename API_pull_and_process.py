@@ -8,7 +8,7 @@ Created on Fri Dec 11 11:58:16 2020
 
 import praw
 import pprint
-import datetime
+from datetime import datetime as dt
 import pandas as pd
 import matplotlib.pyplot as plt
 import requests
@@ -129,7 +129,7 @@ def get_toplevel_comment_info(auth_dict, submission, num_top_comments = 15):
               'threaded': 0,
               'truncate': 50,
               }
-    current_tstmp = datetime.datetime.utcnow()
+    current_tstmp = dt.utcnow()
     submission_id = str(submission.id)
     submission_sub = str(submission.subreddit)
     url = base_url + submission_sub + '/comments/' + submission_id + '.json'
@@ -169,8 +169,8 @@ def get_toplevel_comment_info(auth_dict, submission, num_top_comments = 15):
 
     
     # Use the above to calculate summary info about comment section for submission
-    current_dtime = datetime.datetime.utcnow()
-    age = [(current_dtime - datetime.datetime.fromtimestamp(time)).total_seconds() 
+    current_dtime = dt.utcnow()
+    age = [(current_dtime - dt.utcfromtimestamp(time)).total_seconds() 
            for time in created
           ]
     
@@ -303,11 +303,11 @@ def submission_features(auth_dict, submission_batch,
             features['Subreddit'] = None
         
         # Convert UTC timestamp to time of day (in minutes since beginning of UTC day)
-        dtime_posted = datetime.datetime.fromtimestamp(features['Post time'])
+        dtime_posted = dt.utcfromtimestamp(features['Post time'])
         features['Post time'] = dtime_posted.hour*60 + dtime_posted.minute
         
         # Calculate age of the post (in minutes)
-        features['Post age'] = (datetime.datetime.utcnow() - dtime_posted).total_seconds()/60
+        features['Post age'] = (dt.utcnow() - dtime_posted).total_seconds()/60
         
         # Calculate upvotes per minute of age and comments per minute of age
         features['Upvote rate'] = features['Upvotes']/features['Post age']
@@ -405,7 +405,7 @@ def get_reddit_submissions(sortedby = 'new', num_posts = 500, num_top_comments =
                            subreddit_list = subreddit_list, reddit_auth_file = 'auth.txt',
                           ):
    
-    t0 = datetime.datetime.utcnow()   
+    t0 = dt.utcnow()   
 
 
     
@@ -416,7 +416,7 @@ def get_reddit_submissions(sortedby = 'new', num_posts = 500, num_top_comments =
                             num_top_comments = num_top_comments
                            )
     df = pd.DataFrame(data).transpose()
-    t1 = datetime.datetime.utcnow()
+    t1 = dt.utcnow()
     
     path = './data/'
     month, day, hour, minute  = [ '0' + str(getattr(t1, k)) 
