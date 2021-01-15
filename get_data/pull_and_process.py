@@ -7,46 +7,32 @@ Created on Fri Dec 11 11:58:16 2020
 
 
 import praw
-import pprint
 from datetime import datetime as dt
 import pandas as pd
-import matplotlib.pyplot as plt
 import requests
-import numpy as np
 import json
 import os
 import time
+import exceptions
 
-# Need to create a script that pulls and processes posts in batches. 
-
-# Start by altering the processing scripts so that they can take batches of
-# submissions instead of single submissions.
-
-# First need to know what format the batches will come in. Lets start there.
-
-# =============================================================================
-# client_id = 'h8BBe0NNslxi8g'
-# client_secret = 'gd2EfD_bd9njZI9zngbiD1WhMJo8lA'
-# user_agent = 'Chrome:AwardPredictor:v0.0.1 (by /u/drdnm)'
-# =============================================================================
-
-
-
-
-# =============================================================================
-# reddit = praw.Reddit(client_id = client_id, 
-#                      client_secret = client_secret, 
-#                      user_agent = user_agent)
-# 
-# 
-# 
-# 
-# multi = reddit.subreddit('aww+history+askreddit')
-# multi_hot = multi.hot(limit = 225)
-# =============================================================================
 
 
 def create_auth_dict(reddit_auth_file):
+    """
+    Convert a txt file containing Reddit API keys in to a dictionary.
+
+    Parameters
+    ----------
+    reddit_auth_file : str
+        Filepath of .txt file containing Reddit keys, see sample_auth.txt
+
+    Returns
+    -------
+    auth : dict
+        Keys should be "client_id", "client_secret", and "user_agent". The 
+        corresponding values are read from the auth.txt file in the root
+        directory.
+    """
     
     auth = {}
     f = open(reddit_auth_file, "r")
@@ -61,9 +47,38 @@ def create_auth_dict(reddit_auth_file):
     return auth
 
 
+
+
 def pull_and_process(reddit_auth_file, subreddit_list, num_posts, 
                      num_top_comments = 15, how = 'rising'
                     ):
+    """
+    Makes API call (in batches of 100 submissions) and passes each batch
+    of submissions on to have features extracted.
+
+    Parameters
+    ----------
+    reddit_auth_file : str
+        Filename of .txt file containing Reddit API keys.
+    subreddit_list : list
+        List of strings indicating the subreddits to be included in the 
+        analysis.
+    num_posts : int
+        The total number of submissions to be retrieved.
+    num_top_comments : int, optional
+        How many of the submission's comments (sorted by comments' upvotes,
+        descending) should be used in the analysis. Younger submissions may not
+        yet have many comments. The default is 15.
+    how : str, optional
+        How the submissions are to be sorted within Reddit. The default is 
+        'rising'.
+
+    Returns
+    -------
+    all_submission_features : TYPE
+        DESCRIPTION.
+
+    """
     
     auth_dict = create_auth_dict(reddit_auth_file)
     
@@ -97,9 +112,23 @@ def pull_and_process(reddit_auth_file, subreddit_list, num_posts,
 
 
 
-
-
 def subreddit_list_to_string(subreddit_list):
+    """
+    Converts a list of subreddits to a single string for passing to Reddit API.
+
+    Parameters
+    ----------
+    subreddit_list : list
+        A list of all subreddits to be included in the analysis.
+
+    Returns
+    -------
+    subreddit_multi_name: str
+        A string containing all subreddits to be analyzed, for use in Reddit
+        API.
+
+    """
+    
     subreddit_multi_name = ''
     for subreddit_name in subreddit_list:
         subreddit_multi_name += '+' + subreddit_name.strip()
@@ -110,8 +139,38 @@ def subreddit_list_to_string(subreddit_list):
 
 
 def get_toplevel_comment_info(auth_dict, submission, num_top_comments = 15):
-    
-    # Given a single submission, process its top 'num_top_comments' comments
+    """
+    Given a single submission, process its top comments to build relevant
+    features for analysis. 
+
+    Parameters
+    ----------
+    auth_dict : dict
+        Dictionary which contains authorization info for accesing Reddit API.
+    submission : [reddit submission]
+        The Reddit post for which comment info is to be extracted.
+    num_top_comments : int, optional
+        How many comments, sorted by upvotes descending, will be used to
+        perform the analysis. The default is 15.
+
+    Returns
+    -------
+    Avg_up_rate : float
+        Average the number of upvotes across comments.
+    Std_up_rate : float
+        Standard Deviation of number of upvotes across comments.
+    gild_rate : float
+        The percentage of comments which received one or more gildings.
+    distinguished_rate : float
+        The percentage of comments made by a distinguished user (admin,
+        moderator, etc.).
+    op_comment_rate : float
+        The percentage of comments made by the original poster.
+    premium_auth_rate : float
+        The percentage of comments made by users in the premium category.
+
+    """
+
     
     # Set up authentication for Reddit API
     #   Due to some rate-limiting, cannot practically use PRAW for comments
@@ -205,7 +264,28 @@ def get_toplevel_comment_info(auth_dict, submission, num_top_comments = 15):
 
 
 
+
 def comment_value(data, feature):
+    """
+    Retrieve information about a specific feature from the comment data from a 
+    Reddit post. Handles possible exceptions due to lack of consistent 
+    formatting and/or data included in API calls. Also does some basic encoding
+    of categorical variables for the feature: 'distinguished'.
+
+    Parameters
+    ----------
+    data : TYPE
+        DESCRIPTION.
+    feature : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    value : TYPE
+        DESCRIPTION.
+
+    """
+    
     try:
         value = data[feature]
         if value == None:
@@ -281,9 +361,38 @@ api_feat = {'Title': 'title',
             'Subreddit': 'subreddit',
            }
 
+
 def submission_features(auth_dict, submission_batch, 
                         num_top_comments = 15, api_feat = api_feat
                        ):
+    """
+    Retrieve relevent feature data from a batch of Reddit posts. The API has
+    already been called for the post, so further API calls will only be invoked
+    when retrieving additional data about the posts' comments.
+
+    Parameters
+    ----------
+    auth_dict : dict
+        Dictionary containing authorization keys for Reddit API. To be passed
+        on for retrieval of comment data.
+    submission_batch : list
+        List of reddit submissions to be processed.
+    num_top_comments : int, optional
+        The number of top-level comments to include in the analysis. The 
+        default is 15.
+    api_feat : dict, optional
+        Dictionary containing mappings between Reddit submission feature names
+        and the names to be used here. The default is api_feat.
+
+    Returns
+    -------
+    batch_features : dict
+        Dictionary with keys given by individual Reddit posts submitted, the
+        corresponding values are dictionaries containing the features extracted
+        from that post.
+
+    """
+    
     # Initialize dictionary to hold features for whole batch of Reddit submissions
     batch_features = {}
     # Iterate over each submission in the batch. The entire batch has already
@@ -335,10 +444,6 @@ def submission_features(auth_dict, submission_batch,
     return batch_features
 
 
-
-
-
-    
 
     
 subreddit_list = ['aww',
@@ -403,24 +508,66 @@ subreddit_list = ['aww',
                   'entertainment',
                  ]
     
-def get_reddit_submissions(sortedby = 'new', num_posts = 500, num_top_comments = 10,
+
+def get_reddit_submissions(sortedby = ['new'], num_posts = 500, num_top_comments = 10,
                            subreddit_list = subreddit_list, reddit_auth_file = 'auth.txt',
                            savepath = './data/'
                           ):
+    """
+    Wrapper which structures the pull_and_process procedure. Iterates over all
+    sortedby types, pulls and processes data, adds to Pandas dataframe, then
+    saves as a pickle file.
+    
+    Each iteration within sortedby can be time consuming and the API may
+    timeout during. The number of retry attempts per sortedby value is set
+    to 3 with a 60 second delay between attempts.
+
+    Parameters
+    ----------
+    sortedby : list, optional
+        List of methods by which the posts will sorted within Reddit. Sorted 
+        by types include "new", "hot", "rising". The default is ['new'].
+    num_posts : int, optional
+        Number of posts to pull. Provides and upper bound, may end up with 
+        fewer, unsure of why but I blame the API. The default is 500.
+    num_top_comments : int, optional
+        How many of the comments (sorted by number of upvotes, descending) will
+        be pulled for analysis. The default is 10.
+    subreddit_list : list, optional
+        List containing strings defining subreddits to include within the 
+        model. A default list is currently hard coded The default is 
+        subreddit_list.
+    reddit_auth_file : str, optional
+        Filepath of .txt file containg Reddit keys. The default is 'auth.txt'.
+    savepath : str, optional
+        Defines directory where pickle file will be saved. The default is 
+        './data/'.
+
+    Returns
+    -------
+    None. A file with the scraped data will be saved to disk in the designated
+    directory with a unique filename specifying the parameters used. E.g.
+    "./data/01-15_at_1530utc_sortedby_new_using_10_comments.pkl"
+
+    """
+    
     if not os.path.isdir(savepath):
         os.mkdir(savepath)
     
+    max_tries = 3
+    secs_betw_attempts = 60
+    secs_betw_sortedby_types = 30
+    
     for how in sortedby:
-        t0 = dt.utcnow() 
-        
         num_tries = 0
-        while True:
+        data_obtained = False
+        while ~data_obtained:
             num_tries += 1
-            if num_tries > 3:
-                print('Unable to pull submissions for {} at {} utc'
-                      .format(how, t0)
-                     )
-                break
+            if num_tries > max_tries:
+                raise exceptions.ApiRetryAttemptsExceeded("""API timed out 
+                                                          after {} tries"""
+                                                          .format(max_tries)
+                                                          )
             try:
                 data = pull_and_process(reddit_auth_file = reddit_auth_file,
                                         subreddit_list = subreddit_list,
@@ -429,35 +576,55 @@ def get_reddit_submissions(sortedby = 'new', num_posts = 500, num_top_comments =
                                         num_top_comments = num_top_comments
                                        )
                 df = pd.DataFrame(data).transpose()
-                
-                t1 = dt.utcnow()
-        
+            
                 fname = build_filename(sort_and_comments = True,
                                        sortedby = how,
                                        num_top_comments = num_top_comments,
                                        )
                 file_path = os.path.join(savepath, fname)
                 df.to_pickle(file_path)
-                
-                print('Total time was {:.2f} seconds to process all submissions.'
-                      .format((t1-t0).total_seconds())
-                     )
-                print('Pulled {} submissions sorted by {}. \n'
-                      .format(df.shape[0], how)
-                     )
-                break
+
+                data_obtained = True
             except:
-                time.sleep(60)
-        time.sleep(30)
+                time.sleep(secs_betw_attempts)
+        time.sleep(secs_betw_sortedby_types)
                 
-    
     return None
 
 
 
 
-
 def build_filename(sort_and_comments = False, sortedby = None, num_top_comments = None):
+    """
+    Constructs a unique filename based on parameters chosen to pull from API.
+
+    Parameters
+    ----------
+    sort_and_comments : bool, optional
+        Whether to include information about how the posts were sorted ('new',
+        'rising', etc.) and the number of top-level comments used in the
+        analysis. The default is False.
+    sortedby : str, optional
+        How the posts were sorted within Reddit ('new', 'hot', etc.). The 
+        default is None.
+    num_top_comments : int or None, optional
+        The number of top-level comments used in the analysis. The default is 
+        None.
+
+    Returns
+    -------
+    filename : TYPE
+        DESCRIPTION.
+
+    """
+    if sort_and_comments:
+        if (sortedby == None) | (num_top_comments == None):
+            raise exceptions.InsufficientDataPassed("""Must include sortedby 
+                                                    and num_toplevel_comments
+                                                    values if choosing to use
+                                                    sort_and_comments info
+                                                    for the filename""")
+    
     t1 = dt.utcnow()
 
     month, day, hour, minute  = [ '0' + str(getattr(t1, k)) 
@@ -479,3 +646,7 @@ def build_filename(sort_and_comments = False, sortedby = None, num_top_comments 
     
     
     return filename
+
+
+
+
