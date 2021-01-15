@@ -1,0 +1,7 @@
+Will this break the auth read function?
+
+client_id = 555ABCD111
+client_secret = 1j5tr4katesttest
+user_agent = test_agent_please
+
+Junk that the test had better ignore.
