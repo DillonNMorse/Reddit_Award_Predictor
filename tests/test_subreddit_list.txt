@@ -1,0 +1,3 @@
+subreddit1,
+subreddit2,
+subreddit3
