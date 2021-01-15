@@ -5,15 +5,15 @@ Created on Fri Dec 11 11:58:16 2020
 @author: Dillo
 """
 
-
-import praw
 from datetime import datetime as dt
-import pandas as pd
 import requests
 import json
 import os
 import time
 import exceptions
+
+import praw
+import pandas as pd
 
 
 
@@ -194,7 +194,6 @@ def get_toplevel_comment_info(auth, submission, num_top_comments = 15):
               'threaded': 0,
               'truncate': 50,
               }
-    current_tstmp = dt.utcnow()
     submission_id = str(submission.id)
     submission_sub = str(submission.subreddit)
     url = base_url + submission_sub + '/comments/' + submission_id + '.json'
@@ -305,36 +304,6 @@ def comment_value(data, feature):
 
 
 
-
-# =============================================================================
-# def process_comments_for_batch(submission_batch, num_top_comments = 15):
-#     # Set up dictionary to hold data, indexed by individual Reddit submissions
-#     batch_comment_summaries = {}
-#     
-#     # Iterate through all submissions in the batch
-#     for submission in submission_batch:
-#         # Create a dictionary to hold data for each individual summary
-#         batch_comment_summaries[submission] = {}
-#         
-#         # Call function to process comment data for single submissions
-#         (Avg_up_rate, Std_up_rate, gild_rate, distinguished_rate,
-#             op_comment_rate, premium_auth_rate,
-#         ) = get_toplevel_comment_info(submission, num_top_comments)
-#     
-#         # Assign to dictionary
-#         batch_comment_summaries[submission]['Avg_up_rate'] = Avg_up_rate
-#         batch_comment_summaries[submission]['Std_up_rate'] = Std_up_rate
-#         batch_comment_summaries[submission]['Gild_rate'] = gild_rate
-#         batch_comment_summaries[submission]['Distinguished_rate'] = distinguished_rate
-#         batch_comment_summaries[submission]['Op_comment_rate'] = op_comment_rate
-#         batch_comment_summaries[submission]['Premium_auth_rate'] = premium_auth_rate
-#         
-#         
-#     return batch_comment_summaries
-# =============================================================================
-
-
-
 # List of potentially informative features available from the API
 api_feat = {'Title': 'title',
             'Author': 'author',
@@ -364,6 +333,8 @@ api_feat = {'Title': 'title',
             'Adult content': 'over_18',
             'Subreddit': 'subreddit',
            }
+
+
 
 
 def submission_features(auth, submission_batch, 
@@ -449,72 +420,35 @@ def submission_features(auth, submission_batch,
 
 
 
-    
-subreddit_list = ['aww',
-                  'history',
-                  'askreddit',
-                  'funny',
-                  'announcements',
-                  'pics',
-                  'todayilearned',
-                  'science',
-                  'iama',
-                  'blog',
-                  'videos',
-                  'worldnews',
-                  'gaming',
-                  'movies',
-                  'music',
-                  'news',
-                  'gifs',
-                  'askscience',
-                  'explainlikeimfive',
-                  'earthporn',
-                  'books',
-                  'television',
-                  'lifeprotips',
-                  'sports',
-                  'diy',
-                  'showerthoughts',
-                  'space',
-                  'jokes',
-                  'tifu',
-                  'food',
-                  'photoshopbattles',
-                  'art',
-                  'internetisbeautiful',
-                  'mildlyinteresting',
-                  'getmotivated',
-                  'history',
-                  'nottheonion',
-                  'gadgets',
-                  'dataisbeautiful',
-                  'futurology',
-                  'documentaries',
-                  'listentothis',
-                  'personalfinance'
-                  'philosophy',
-                  'nosleep',
-                  'creepy',
-                  'oldschoolcool',
-                  'upliftingnews',
-                  'writingprompts',
-                  'twoxchromosone',
-                  'fermentation',
-                  'spicy',
-                  'fitness',
-                  'technology',
-                  'bestof',
-                  'adviceanimals',
-                  'politics',
-                  'atheism',
-                  'programming',
-                  'entertainment',
-                 ]
-    
 
-def get_reddit_submissions(sortedby = ['new'], num_posts = 500, num_top_comments = 15,
-                           subreddit_list = subreddit_list, reddit_auth_file = '../auth.txt',
+def get_subreddit_list(subreddits_filepath):
+    """
+    Reads and parses txt file containing all subreddits to include in analysis.
+
+    Parameters
+    ----------
+    subreddits_filepath : str
+        Filepath of txt file containing list of subreddits, delimited by ',/n'.
+
+    Returns
+    -------
+    subreddit_list: list
+        List of all subreddits.
+
+    """
+    with open(subreddits_filepath, "r") as f:
+        subreddit_list = f.read().split(',\n')
+        
+    return subreddit_list
+
+
+
+
+def get_reddit_submissions(sortedby = ['new'],
+                           num_posts = 500,
+                           num_top_comments = 15,
+                           subreddits_fpath = './subreddits.txt',
+                           reddit_auth_file = '../auth.txt',
                            savepath = './data/'
                           ):
     """
@@ -557,6 +491,8 @@ def get_reddit_submissions(sortedby = ['new'], num_posts = 500, num_top_comments
     
     if not os.path.isdir(savepath):
         os.mkdir(savepath)
+    
+    subreddit_list = get_subreddit_list(subreddits_fpath)
     
     max_tries = 3
     secs_betw_attempts = 60
@@ -652,7 +588,3 @@ def build_filename(sort_and_comments = False, sortedby = None, num_top_comments 
     
     
     return filename
-
-
-
-
