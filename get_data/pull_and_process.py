@@ -86,7 +86,7 @@ class get_auth:
 
 
 def pull_and_process(reddit_auth_file, subreddit_list, num_posts, 
-                     num_top_comments = 15, how = 'rising'
+                     num_top_comments = 15, how = 'new'
                     ):
     """
     Makes API call (in batches of 100 submissions) and passes each batch
@@ -117,18 +117,19 @@ def pull_and_process(reddit_auth_file, subreddit_list, num_posts,
     """
     
     auth = get_auth(reddit_auth_file)
+    print('Auth header: ', auth.user_agent)
     
     reddit = praw.Reddit(client_id = auth.client_id,
                          client_secret = auth.client_secret,
                          user_agent = auth.user_agent,
                          )
-    
+
     reddit_subs_to_pull = subreddit_list_to_string(subreddit_list)
     subreddit_instance = getattr(reddit.subreddit(reddit_subs_to_pull),
                                  how
                                 )(limit = num_posts)
                          
-    
+    print('Started Reddit instance')
     all_submission_features = {}
     submission_batch = []
     for subm_num, subm in enumerate(subreddit_instance):
@@ -136,6 +137,7 @@ def pull_and_process(reddit_auth_file, subreddit_list, num_posts,
         submission_batch.append(subm)
         
         if ((subm_num + 1)%100 == 0) | (subm_num == num_posts - 1):
+            print('Getting batch features now via submission_features')
             batch_features = submission_features(auth,
                                                  submission_batch,
                                                  num_top_comments,
@@ -434,6 +436,7 @@ def submission_features(auth, submission_batch,
     # Iterate over each submission in the batch. The entire batch has already
     #    been pulled by the API, so they will now just be processed.
     for subm in submission_batch:
+        print('Got features of a new submission')
         # Iterate through desired features to build a dictionary containing feature values for this submission
         features = {}
         for feat_name in api_feat:
@@ -545,8 +548,8 @@ subreddit_list = ['aww',
                  ]
     
 
-def get_reddit_submissions(sortedby = ['new'], num_posts = 500, num_top_comments = 10,
-                           subreddit_list = subreddit_list, reddit_auth_file = 'auth.txt',
+def get_reddit_submissions(sortedby = ['new'], num_posts = 500, num_top_comments = 15,
+                           subreddit_list = subreddit_list, reddit_auth_file = '../auth.txt',
                            savepath = './data/'
                           ):
     """
@@ -568,7 +571,7 @@ def get_reddit_submissions(sortedby = ['new'], num_posts = 500, num_top_comments
         fewer, unsure of why but I blame the API. The default is 500.
     num_top_comments : int, optional
         How many of the comments (sorted by number of upvotes, descending) will
-        be pulled for analysis. The default is 10.
+        be pulled for analysis. The default is 15.
     subreddit_list : list, optional
         List containing strings defining subreddits to include within the 
         model. A default list is currently hard coded The default is 
@@ -593,11 +596,12 @@ def get_reddit_submissions(sortedby = ['new'], num_posts = 500, num_top_comments
     max_tries = 3
     secs_betw_attempts = 60
     secs_betw_sortedby_types = 30
+    num_sortedby_types = len(sortedby)
     
-    for how in sortedby:
+    for j, how in enumerate(sortedby):
         num_tries = 0
         data_obtained = False
-        while ~data_obtained:
+        while not data_obtained:
             num_tries += 1
             if num_tries > max_tries:
                 raise exceptions.ApiRetryAttemptsExceeded("""API timed out 
@@ -605,6 +609,7 @@ def get_reddit_submissions(sortedby = ['new'], num_posts = 500, num_top_comments
                                                           .format(max_tries)
                                                           )
             try:
+                print('Moving to pull_and_process')
                 data = pull_and_process(reddit_auth_file = reddit_auth_file,
                                         subreddit_list = subreddit_list,
                                         num_posts = num_posts,
@@ -623,7 +628,8 @@ def get_reddit_submissions(sortedby = ['new'], num_posts = 500, num_top_comments
                 data_obtained = True
             except:
                 time.sleep(secs_betw_attempts)
-        time.sleep(secs_betw_sortedby_types)
+        if not (j ==  num_sortedby_types - 1):
+            time.sleep(secs_betw_sortedby_types)
                 
     return None
 
