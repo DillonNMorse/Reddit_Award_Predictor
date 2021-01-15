@@ -17,9 +17,42 @@ import exceptions
 
 
 
-def create_auth_dict(reddit_auth_file):
+# =============================================================================
+# 
+# def create_auth_dict(reddit_auth_file):
+#     """
+#     Convert a txt file containing Reddit API keys in to an authorization
+#     object containing necessary keys, etc.
+# 
+#     Parameters
+#     ----------
+#     reddit_auth_file : str
+#         Filepath of .txt file containing Reddit keys, see sample_auth.txt
+# 
+#     Returns
+#     -------
+#     auth : pull_and_process.auth
+#         Authorization object with properites needed to access the Reddit API.
+#     """
+#     
+#     auth = {}
+#     f = open(reddit_auth_file, "r")
+#     for var, line in enumerate(f):
+#         if var >= 3:
+#             break
+#         variable_name = line.split('=')[0].strip()
+#         variable_value = line.split('=')[1].strip()
+#         auth[variable_name] = variable_value
+#     f.close()     
+#     
+#     return auth
+# =============================================================================
+
+
+class get_auth:
     """
-    Convert a txt file containing Reddit API keys in to a dictionary.
+    Convert a txt file containing Reddit API keys in to an authorization
+    object containing necessary keys, etc.
 
     Parameters
     ----------
@@ -28,23 +61,26 @@ def create_auth_dict(reddit_auth_file):
 
     Returns
     -------
-    auth : dict
-        Keys should be "client_id", "client_secret", and "user_agent". The 
-        corresponding values are read from the auth.txt file in the root
-        directory.
+    auth : pull_and_process.auth
+        Authorization object with properites needed to access the Reddit API.
     """
-    
-    auth = {}
-    f = open(reddit_auth_file, "r")
-    for var, line in enumerate(f):
-        if var >= 3:
-            break
-        variable_name = line.split('=')[0].strip()
-        variable_value = line.split('=')[1].strip()
-        auth[variable_name] = variable_value
-    f.close()     
-    
-    return auth
+
+    def __init__(self, reddit_auth_file):
+        f = open(reddit_auth_file, "r")
+        for var, line in enumerate(f):
+            if len(line.split('=')) < 2:
+                pass
+            else:
+                variable_name = line.split('=')[0].strip()
+                variable_value = line.split('=')[1].strip()
+                
+                if variable_name == 'client_id':
+                    self.client_id = variable_value
+                elif variable_name == 'client_secret':
+                    self.client_secret = variable_value
+                elif variable_name == 'user_agent':
+                    self.user_agent = variable_value                
+        f.close()             
 
 
 
@@ -80,11 +116,11 @@ def pull_and_process(reddit_auth_file, subreddit_list, num_posts,
 
     """
     
-    auth_dict = create_auth_dict(reddit_auth_file)
+    auth = get_auth(reddit_auth_file)
     
-    reddit = praw.Reddit(client_id = auth_dict['client_id'],
-                         client_secret = auth_dict['client_secret'],
-                         user_agent = auth_dict['user_agent'],
+    reddit = praw.Reddit(client_id = auth.client_id,
+                         client_secret = auth.client_secret,
+                         user_agent = auth.user_agent,
                          )
     
     reddit_subs_to_pull = subreddit_list_to_string(subreddit_list)
@@ -100,7 +136,7 @@ def pull_and_process(reddit_auth_file, subreddit_list, num_posts,
         submission_batch.append(subm)
         
         if ((subm_num + 1)%100 == 0) | (subm_num == num_posts - 1):
-            batch_features = submission_features(auth_dict,
+            batch_features = submission_features(auth,
                                                  submission_batch,
                                                  num_top_comments,
                                                 )
@@ -138,7 +174,7 @@ def subreddit_list_to_string(subreddit_list):
 
 
 
-def get_toplevel_comment_info(auth_dict, submission, num_top_comments = 15):
+def get_toplevel_comment_info(auth, submission, num_top_comments = 15):
     """
     Given a single submission, process its top comments to build relevant
     features for analysis. 
@@ -175,10 +211,10 @@ def get_toplevel_comment_info(auth_dict, submission, num_top_comments = 15):
     # Set up authentication for Reddit API
     #   Due to some rate-limiting, cannot practically use PRAW for comments
     base_url = str('https://www.reddit.com/r/')
-    auth = requests.auth.HTTPBasicAuth(auth_dict['client_id'],
-                                       auth_dict['client_secret'],
-                                       )
-    headers = {'user-agent': auth_dict['user_agent']}
+    authorization = requests.auth.HTTPBasicAuth(auth.client_id,
+                                                auth.client_secret,
+                                                )
+    headers = {'user-agent': auth.user_agent}
     
     #Call the API with these params
     params = {'context': 1,
@@ -198,7 +234,7 @@ def get_toplevel_comment_info(auth_dict, submission, num_top_comments = 15):
     # Call API
     r = requests.get(url,
                      params = params,
-                     auth = auth,
+                     auth = authorization,
                      headers = headers,
                      )
     
@@ -362,7 +398,7 @@ api_feat = {'Title': 'title',
            }
 
 
-def submission_features(auth_dict, submission_batch, 
+def submission_features(auth, submission_batch, 
                         num_top_comments = 15, api_feat = api_feat
                        ):
     """
@@ -428,7 +464,7 @@ def submission_features(auth_dict, submission_batch,
         # Call function to process comment data for single submissions
         (Avg_up_rate, Std_up_rate, gild_rate, distinguished_rate,
             op_comment_rate, premium_auth_rate,
-        ) = get_toplevel_comment_info(auth_dict, subm, num_top_comments)
+        ) = get_toplevel_comment_info(auth, subm, num_top_comments)
     
         # Assign to dictionary
         features['Avg top comments up rate'] = Avg_up_rate
