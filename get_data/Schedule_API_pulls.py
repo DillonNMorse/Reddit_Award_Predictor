@@ -5,7 +5,7 @@ Created on Thu Dec 17 14:51:49 2020
 @author: Dillo
 """
 
-from pull_and_process import get_reddit_submissions
+from main import get_reddit_submissions
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 
