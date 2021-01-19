@@ -39,7 +39,7 @@ def  process_all_posts_comments(subms_fpath, subm_IDs, auth, directory):
     comms_fpath = os.path.join(directory, 'comment_data_' + comms_dtime)
     pickle.dump(comments_dict, open(comms_fpath, 'wb'))
     
-    return 
+    return comms_fpath
 
 
 

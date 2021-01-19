@@ -98,7 +98,7 @@ def submission_features(auth,
     posts_fpath = os.path.join(directory, 'posts_data_' + posts_dtime)
     pickle.dump(features, open(posts_fpath, 'wb'))    
     
-    return 
+    return posts_fpath
 
 
 

@@ -15,6 +15,7 @@ import exceptions
 from pull_posts import pull_posts
 from retrieve_comments import  process_all_posts_comments
 from extract_features import submission_features
+from post_process import combine_reddit_data
 
 
 
@@ -73,11 +74,18 @@ def get_reddit_submissions(sortedby = 'new',
     subms_fpath, subm_IDs, auth, working_directory = pulled_post_data
     
     
-    submission_features(auth, subms_fpath, working_directory)
+    posts_fpath = submission_features(auth,
+                                      subms_fpath,
+                                      working_directory
+                                     )
     
-    process_all_posts_comments(subms_fpath, subm_IDs, auth, working_directory)
+    comms_fpath = process_all_posts_comments(subms_fpath,
+                                             subm_IDs,
+                                             auth,
+                                             working_directory
+                                            )
     
-    
+    combine_reddit_data(posts_fpath, comms_fpath, working_directory)
     
 # =============================================================================
 #     if not os.path.isdir(savepath):
