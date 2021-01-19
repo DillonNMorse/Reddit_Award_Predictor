@@ -8,10 +8,47 @@ Created on Fri Jan 15 17:13:31 2021
 import requests
 from datetime import datetime as dt
 import json
+import pickle
+import os
 
 
 
-def get_toplevel_comment_info(auth, submission, num_top_comments = 15):
+def  process_all_posts_comments(subms_fpath, subm_IDs, auth, directory):
+    
+    #Wrapper for get_toplevel_comment_info, iterates through submission ID's 
+    comments_dict = {}
+    for subm in subm_IDs:
+        submission_id = subm[0]
+        subm_subreddit = subm[1] 
+        comment_data = get_toplevel_comment_info(auth,
+                                                 submission_id,
+                                                 subm_subreddit
+                                                )
+        
+        # Store post data to a dictionary
+        comments_dict[submission_id] = {}
+        comments_dict[submission_id]['avg_up_rate'] = comment_data[0]
+        comments_dict[submission_id]['std_up_rate'] = comment_data[1]
+        comments_dict[submission_id]['gild_rate'] = comment_data[2]
+        comments_dict[submission_id]['distinguished_rate'] = comment_data[3]
+        comments_dict[submission_id]['op_comment_rate'] = comment_data[4]
+        comments_dict[submission_id]['premium_auth_rate'] = comment_data[5]
+        
+    # Save to disc
+    comms_dtime = subms_fpath[27:]
+    comms_fpath = os.path.join(directory, 'comment_data_' + comms_dtime)
+    pickle.dump(comments_dict, open(comms_fpath, 'wb'))
+    
+    return 
+
+
+
+
+def get_toplevel_comment_info(auth,
+                              submission_id,
+                              subm_subreddit,
+                              num_top_comments = 15
+                              ):
     """
     Given a single submission, process its top comments to build relevant
     features for analysis. 
@@ -63,9 +100,9 @@ def get_toplevel_comment_info(auth, submission, num_top_comments = 15):
               'threaded': 0,
               'truncate': 50,
               }
-    submission_id = str(submission.id)
-    submission_sub = str(submission.subreddit)
-    url = base_url + submission_sub + '/comments/' + submission_id + '.json'
+    #submission_id = str(submission.id)
+    #submission_sub = str(submission.subreddit)
+    url = base_url + subm_subreddit + '/comments/' + submission_id + '.json'
 
     # Call API
     r = requests.get(url,
@@ -97,9 +134,6 @@ def get_toplevel_comment_info(auth, submission, num_top_comments = 15):
     auth_prem = [comment_value(comment['data'], 'author_premium')
                  for comment in comments_dict
                 ] 
-
-
-
     
     # Use the above to calculate summary info about comment section for submission
     current_dtime = dt.utcnow()

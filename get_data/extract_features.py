@@ -6,14 +6,17 @@ Created on Fri Jan 15 17:13:31 2021
 """
 
 from datetime import datetime as dt
+import pickle
+import os
 
 from retrieve_comments import get_toplevel_comment_info
 
 
 
 
-def submission_features(auth, submission_batch, 
-                        num_top_comments = 15,
+def submission_features(auth,
+                        subms_fpath, 
+                        directory,
                        ):
     """
     Retrieve relevent feature data from a batch of Reddit posts. The API has
@@ -25,7 +28,7 @@ def submission_features(auth, submission_batch,
     auth_dict : dict
         Dictionary containing authorization keys for Reddit API. To be passed
         on for retrieval of comment data.
-    submission_batch : list
+    submissions : list
         List of reddit submissions to be processed.
     num_top_comments : int, optional
         The number of top-level comments to include in the analysis. The 
@@ -43,57 +46,59 @@ def submission_features(auth, submission_batch,
 
     """
     
+    # Load submission data from file.
+    submissions = pickle.load(open(subms_fpath, 'rb'))
+    
+    # Dictionary containing names for API featues.
     api_feat = api_feature_names()
     
-    # Initialize dictionary to hold features for whole batch of Reddit submissions
-    batch_features = {}
-    # Iterate over each submission in the batch. The entire batch has already
-    #    been pulled by the API, so they will now just be processed.
-    for subm in submission_batch:
-        # Iterate through desired features to build a dictionary containing feature values for this submission
-        features = {}
+    # Initialize dictionary to hold features for Reddit posts
+    features = {}
+    # Iterate over each submission. They have all been pulled from the API,
+    #   they will now just be processed.
+    for subm in submissions:
+        
+        features[subm.id] = {}
+            
         for feat_name in api_feat:
-            features[feat_name] = subm.__dict__[api_feat[feat_name]]
+            features[subm.id][feat_name] = subm.__dict__[api_feat[feat_name]]
     
         # Extract author and subreddit names as strings
         try:
-            features['Author'] = features['Author'].name
+            features[subm.id]['Author'] = features[subm.id]['Author'].name
         except AttributeError:
-            features['Author'] = None
+            features[subm.id]['Author'] = None
         try:
-            features['Subreddit'] = features['Subreddit'].display_name
+            features[subm.id]['Subreddit'] = (features[subm.id]['Subreddit']
+                                              ).display_name
         except AttributeError:
-            features['Subreddit'] = None
+            features[subm.id]['Subreddit'] = None
         
-        # Convert UTC timestamp to time of day (in minutes since beginning of UTC day)
-        dtime_posted = dt.utcfromtimestamp(features['Post time'])
-        features['Post time'] = dtime_posted.hour*60 + dtime_posted.minute
+        # Convert UTC timestamp to time of day (in minutes since beginning of 
+        #   UTC day)
+        dtime_posted = dt.utcfromtimestamp(features[subm.id]['Post time'])
+        features[subm.id]['Post time'] = (dtime_posted.hour*60 
+                                          + dtime_posted.minute
+                                         )
         
         # Calculate age of the post (in minutes)
-        features['Post age'] = (dt.utcnow() - dtime_posted).total_seconds()/60
+        features[subm.id]['Post age'] = (dt.utcnow() 
+                                         - dtime_posted).total_seconds()/60
         
         # Calculate upvotes per minute of age and comments per minute of age
-        features['Upvote rate'] = features['Upvotes']/features['Post age']
-        features['Comment rate'] = features['Comments']/features['Post age']
-        
-        
-        # Call function to process comment data for single submissions
-        (Avg_up_rate, Std_up_rate, gild_rate, distinguished_rate,
-            op_comment_rate, premium_auth_rate,
-        ) = get_toplevel_comment_info(auth, subm, num_top_comments)
+        features[subm.id]['Upvote rate'] = (features[subm.id]['Upvotes']
+                                            /features[subm.id]['Post age']
+                                           )
+        features[subm.id]['Comment rate'] = (features[subm.id]['Comments']
+                                             /features[subm.id]['Post age']
+                                            )
+      
+    # Save post features to disc.
+    posts_dtime = subms_fpath[27:]
+    posts_fpath = os.path.join(directory, 'posts_data_' + posts_dtime)
+    pickle.dump(features, open(posts_fpath, 'wb'))    
     
-        # Assign to dictionary
-        features['Avg top comments up rate'] = Avg_up_rate
-        features['Std top comments up rate'] = Std_up_rate
-        features['Gilded rate'] = gild_rate
-        features['Distinguished rate'] = distinguished_rate
-        features['Op comment rate'] = op_comment_rate
-        features['Premium author rate'] = premium_auth_rate
-
-        # Append this submission's feature to the set of all features for the batch
-        batch_features[subm] = features
-    
-    return batch_features
+    return 
 
 
 

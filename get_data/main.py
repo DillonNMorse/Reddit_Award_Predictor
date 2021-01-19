@@ -12,11 +12,13 @@ from datetime import datetime as dt
 import pandas as pd
 
 import exceptions
-from pull_and_process import pull_and_process
+from pull_posts import pull_posts
+from retrieve_comments import  process_all_posts_comments
+from extract_features import submission_features
 
 
 
-def get_reddit_submissions(sortedby = ['new'],
+def get_reddit_submissions(sortedby = 'new',
                            num_posts = 500,
                            num_top_comments = 15,
                            subreddits_fpath = './subreddits.txt',
@@ -61,47 +63,65 @@ def get_reddit_submissions(sortedby = ['new'],
 
     """
     
-    if not os.path.isdir(savepath):
-        os.mkdir(savepath)
+    #subreddit_list = get_subreddit_list(subreddits_fpath)
+    pulled_post_data = pull_posts(reddit_auth_file = reddit_auth_file,
+                                  subreddits_fpath = subreddits_fpath,
+                                  num_posts = num_posts,
+                                  how = sortedby,
+                                  num_top_comments = num_top_comments
+                                 )
+    subms_fpath, subm_IDs, auth, working_directory = pulled_post_data
     
-    subreddit_list = get_subreddit_list(subreddits_fpath)
     
-    max_tries = 3
-    secs_betw_attempts = 60
-    secs_betw_sortedby_types = 30
-    num_sortedby_types = len(sortedby)
+    submission_features(auth, subms_fpath, working_directory)
     
-    for j, how in enumerate(sortedby):
-        num_tries = 0
-        data_obtained = False
-        while not data_obtained:
-            num_tries += 1
-            if num_tries > max_tries:
-                raise exceptions.ApiRetryAttemptsExceeded("""API timed out 
-                                                          after {} tries"""
-                                                          .format(max_tries)
-                                                          )
-            try:
-                data = pull_and_process(reddit_auth_file = reddit_auth_file,
-                                        subreddit_list = subreddit_list,
-                                        num_posts = num_posts,
-                                        how = how,
-                                        num_top_comments = num_top_comments
-                                       )
-                df = pd.DataFrame(data).transpose()
-            
-                fname = build_filename(sort_and_comments = True,
-                                       sortedby = how,
-                                       num_top_comments = num_top_comments,
-                                       )
-                file_path = os.path.join(savepath, fname)
-                df.to_pickle(file_path)
-
-                data_obtained = True
-            except:
-                time.sleep(secs_betw_attempts)
-        if not (j ==  num_sortedby_types - 1):
-            time.sleep(secs_betw_sortedby_types)
+    process_all_posts_comments(subms_fpath, subm_IDs, auth, working_directory)
+    
+    
+    
+# =============================================================================
+#     if not os.path.isdir(savepath):
+#         os.mkdir(savepath)
+#     
+#     subreddit_list = get_subreddit_list(subreddits_fpath)
+#     
+#     max_tries = 3
+#     secs_betw_attempts = 60
+#     secs_betw_sortedby_types = 30
+#     num_sortedby_types = len(sortedby)
+#     
+#     for j, how in enumerate(sortedby):
+#         num_tries = 0
+#         data_obtained = False
+#         while not data_obtained:
+#             num_tries += 1
+#             if num_tries > max_tries:
+#                 raise exceptions.ApiRetryAttemptsExceeded("""API timed out 
+#                                                           after {} tries"""
+#                                                           .format(max_tries)
+#                                                           )
+#             try:
+#                 data = pull_posts(reddit_auth_file = reddit_auth_file,
+#                                         subreddit_list = subreddit_list,
+#                                         num_posts = num_posts,
+#                                         how = how,
+#                                         num_top_comments = num_top_comments
+#                                        )
+#                 df = pd.DataFrame(data).transpose()
+#             
+#                 fname = build_filename(sort_and_comments = True,
+#                                        sortedby = how,
+#                                        num_top_comments = num_top_comments,
+#                                        )
+#                 file_path = os.path.join(savepath, fname)
+#                 df.to_pickle(file_path)
+# 
+#                 data_obtained = True
+#             except:
+#                 time.sleep(secs_betw_attempts)
+#         if not (j ==  num_sortedby_types - 1):
+#             time.sleep(secs_betw_sortedby_types)
+# =============================================================================
                 
     return None
 

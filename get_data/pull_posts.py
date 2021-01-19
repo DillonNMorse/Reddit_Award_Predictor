@@ -1,22 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Dec 11 11:58:16 2020
+Created on Tue Jan 19 11:44:35 2021
 
 @author: Dillo
 """
 
+import os
+from datetime import datetime as dt
 
 import praw
+import pickle
 
 from extract_features import submission_features
 
 
-def pull_and_process(reddit_auth_file, subreddit_list, num_posts, 
-                     num_top_comments = 15, how = 'new'
-                    ):
+def pull_posts(reddit_auth_file,
+               subreddits_fpath,
+               num_posts, 
+               num_top_comments = 15,
+               how = 'new',
+               working_directory = './working'
+              ):
     """
-    Makes API call (in batches of 100 submissions) and passes each batch
-    of submissions on to have features extracted.
+    Makes API call, saves all submissions to disc for later processing.
 
     Parameters
     ----------
@@ -34,41 +40,53 @@ def pull_and_process(reddit_auth_file, subreddit_list, num_posts,
     how : str, optional
         How the submissions are to be sorted within Reddit. The default is 
         'rising'.
+    working_directory: str, optional
+        The path of the directory to save the submissions
 
     Returns
     -------
-    all_submission_features : TYPE
-        DESCRIPTION.
-
+    None
+    fpath: str
+        Relative filepath where submissions were saved.
+    submission_IDs: list
+        List of strings, the ID's of all posts pulled.
+    
     """
     
+    if not os.path.isdir(working_directory):
+        os.mkdir(working_directory)
+    
+    # Pull Reddit API keys from file
     auth = get_auth(reddit_auth_file)
     
+    # Instantiate a Reddit API call header
     reddit = praw.Reddit(client_id = auth.client_id,
                          client_secret = auth.client_secret,
                          user_agent = auth.user_agent,
                          )
-
+    
+    # Convert subreddits file to a string compatible with Reddit API
+    subreddit_list = get_subreddit_list(subreddits_fpath)
     reddit_subs_to_pull = subreddit_list_to_string(subreddit_list)
+    
+    # Instantiate subreddit instance. Lazy, doesn't hit API until it is used.
     subreddit_instance = getattr(reddit.subreddit(reddit_subs_to_pull),
                                  how
                                 )(limit = num_posts)
-                         
-    all_submission_features = {}
-    submission_batch = []
-    for subm_num, subm in enumerate(subreddit_instance):
-        
-        submission_batch.append(subm)
-        
-        if ((subm_num + 1)%100 == 0) | (subm_num == num_posts - 1):
-            batch_features = submission_features(auth,
-                                                 submission_batch,
-                                                 num_top_comments,
-                                                )
-            submission_batch = []
-            all_submission_features.update(batch_features)
+    
+    # Put all submissions in to a list, this forces the API call    
+    submissions = []
+    submissions_IDs = []
+    for subm in subreddit_instance:
+        submissions.append(subm)
+        submissions_IDs.append([subm.id, str(subm.subreddit)])
+    
+    # Save list of Reddit submissions to disc
+    fpath = build_working_filename(working_directory, how)
+    pickle.dump(submissions, open(fpath, 'wb'))
+
       
-    return all_submission_features
+    return fpath, submissions_IDs, auth, working_directory
 
 
 
@@ -135,19 +153,44 @@ def subreddit_list_to_string(subreddit_list):
 
 
 
+def build_working_filename(fpath, how):
+    
+    t1 = dt.utcnow()
+
+    month, day, hour, minute  = [ '0' + str(getattr(t1, k)) 
+                                 if len(str(getattr(t1, k))) == 1
+                                 else str(getattr(t1, k))
+                                 for k in ['month', 'day', 'hour', 'minute']
+                                ]
+    dtime_string = month + '-' + day + '_at_' + hour + minute + 'utc'
+    
+    
+    fname = os.path.join(fpath, 
+                         'submissions_list_by' + how + '_' 
+                         + dtime_string + '.p'
+                        )
+    
+    return fname
+    
 
 
 
+def get_subreddit_list(subreddits_filepath):
+    """
+    Reads and parses txt file containing all subreddits to include in analysis.
 
+    Parameters
+    ----------
+    subreddits_filepath : str
+        Filepath of txt file containing list of subreddits, delimited by ',/n'.
 
+    Returns
+    -------
+    subreddit_list: list
+        List of all subreddits.
 
-
-
-
-
-
-
-
-
-
-
+    """
+    with open(subreddits_filepath, "r") as f:
+        subreddit_list = f.read().split(',\n')
+        
+    return subreddit_list

@@ -11,7 +11,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 
 # Run once at the beginning
-get_reddit_submissions(sortedby = ['new'], num_posts = 3)
+get_reddit_submissions(sortedby = 'new', num_posts = 10)
   
 
 # Run every 2.75 hours
