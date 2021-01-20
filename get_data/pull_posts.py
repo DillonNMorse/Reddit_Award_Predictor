@@ -11,7 +11,6 @@ from datetime import datetime as dt
 import praw
 import pickle
 
-from extract_features import submission_features
 
 
 def pull_posts(reddit_auth_file,
@@ -28,9 +27,9 @@ def pull_posts(reddit_auth_file,
     ----------
     reddit_auth_file : str
         Filename of .txt file containing Reddit API keys.
-    subreddit_list : list
-        List of strings indicating the subreddits to be included in the 
-        analysis.
+    subreddits_fpath : str
+        Filepath pointing to text file containing ',/n' separated subreddit
+        names.
     num_posts : int
         The total number of submissions to be retrieved.
     num_top_comments : int, optional
@@ -39,18 +38,20 @@ def pull_posts(reddit_auth_file,
         yet have many comments. The default is 15.
     how : str, optional
         How the submissions are to be sorted within Reddit. The default is 
-        'rising'.
+        'new'.
     working_directory: str, optional
         The path of the directory to save the submissions
 
     Returns
     -------
-    None
     fpath: str
-        Relative filepath where submissions were saved.
+        Relative filepath where submissions were saved
     submission_IDs: list
-        List of strings, the ID's of all posts pulled.
-    
+        List of strings, the ID's of all posts pulled
+    auth: auth_object
+        Holds keys necessary for accessing Reddit API
+    working_directory: str
+        The directory where intermediate files will be saved  
     """
     
     if not os.path.isdir(working_directory):
@@ -103,7 +104,7 @@ class get_auth:
 
     Returns
     -------
-    auth : pull_and_process.auth
+    auth : auth_object
         Authorization object with properites needed to access the Reddit API.
     """
 
@@ -141,7 +142,6 @@ def subreddit_list_to_string(subreddit_list):
     subreddit_multi_name: str
         A string containing all subreddits to be analyzed, for use in Reddit
         API.
-
     """
     
     subreddit_multi_name = ''
@@ -154,6 +154,21 @@ def subreddit_list_to_string(subreddit_list):
 
 
 def build_working_filename(fpath, how):
+    """
+    Builds unique filename for storage of intermediate data.
+
+    Parameters
+    ----------
+    fpath : str
+        The directory where intermediate files are stored.
+    how : str
+        How the Reddit is sorting posts, e.g. 'new'
+
+    Returns
+    -------
+    fname : str
+        A unique filename.
+    """
     
     t1 = dt.utcnow()
 
@@ -188,7 +203,6 @@ def get_subreddit_list(subreddits_filepath):
     -------
     subreddit_list: list
         List of all subreddits.
-
     """
     with open(subreddits_filepath, "r") as f:
         subreddit_list = f.read().split(',\n')
