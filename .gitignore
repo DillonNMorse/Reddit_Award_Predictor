@@ -1,5 +1,6 @@
 data/
 working/
+lambda_code_packages/
 auth.txt
 *.ipynb
 
