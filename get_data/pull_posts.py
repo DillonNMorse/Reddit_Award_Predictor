@@ -7,19 +7,34 @@ Created on Tue Jan 19 11:44:35 2021
 
 import os
 from datetime import datetime as dt
+import pickle
+import json
 
 import praw
-import pickle
+import boto3
+
+
+""" 
+Set up calls to AWS S3 bucket that contains the files for Reddit API 
+authorization and the set of subreddits to pull for analysis.
+"""
+s3 = boto3.resource('s3')
+
+auth_obj = s3.Object('dnmorse-reddit-predict-private-directories', 'auth.txt')
+auth_file = auth_obj.get()
+
+subreddits_obj = s3.Object('dnmorse-reddit-predict-private-directories', 'subreddits.txt')
+subreddits_file = subreddits_obj.get()
 
 
 
-def pull_posts(reddit_auth_file,
-               subreddits_fpath,
-               num_posts, 
-               num_top_comments = 15,
-               how = 'new',
-               working_directory = './working'
-              ):
+
+working_directory = './work'
+
+def pull_posts(event, context):
+    num_posts = event['num_posts']
+    num_top_comments = event['num_top_comments']
+    how = event['how']
     """
     Makes API call, saves all submissions to disc for later processing.
 
@@ -53,13 +68,15 @@ def pull_posts(reddit_auth_file,
     working_directory: str
         The directory where intermediate files will be saved  
     """
+
+    print('\nInside pull_posts.')
     
-    if not os.path.isdir(working_directory):
-        os.mkdir(working_directory)
+#    if not os.path.isdir(working_directory):
+#        os.mkdir(working_directory)
     
     # Pull Reddit API keys from file
-    auth = get_auth(reddit_auth_file)
-    
+    auth = get_auth(auth_file)
+    print('\nAuth setup.')    
     # Instantiate a Reddit API call header
     reddit = praw.Reddit(client_id = auth.client_id,
                          client_secret = auth.client_secret,
@@ -67,27 +84,32 @@ def pull_posts(reddit_auth_file,
                          )
     
     # Convert subreddits file to a string compatible with Reddit API
-    subreddit_list = get_subreddit_list(subreddits_fpath)
+    subreddit_list = get_subreddit_list(subreddits_file)
     reddit_subs_to_pull = subreddit_list_to_string(subreddit_list)
-    
+    print('\nSubreddits set.')    
     # Instantiate subreddit instance. Lazy, doesn't hit API until it is used.
     subreddit_instance = getattr(reddit.subreddit(reddit_subs_to_pull),
                                  how
                                 )(limit = num_posts)
-    
+    print('\nMaking API call.')    
     # Put all submissions in to a list, this forces the API call    
     submissions = []
     submissions_IDs = []
     for subm in subreddit_instance:
         submissions.append(subm)
         submissions_IDs.append([subm.id, str(subm.subreddit)])
-    
+    print('\nSubreddit info obtained.')
     # Save list of Reddit submissions to disc
+    
     fpath = build_working_filename(working_directory, how)
     pickle.dump(submissions, open(fpath, 'wb'))
 
       
-    return fpath, submissions_IDs, auth, working_directory
+    #return fpath, submissions_IDs, auth, working_directory
+    return {
+            'statusCode': 200,
+            'body': json.dumps(auth.user_agent)
+           }
 
 
 
@@ -109,8 +131,9 @@ class get_auth:
     """
 
     def __init__(self, reddit_auth_file):
-        f = open(reddit_auth_file, "r")
-        for var, line in enumerate(f):
+        lines = reddit_auth_file['Body'].read().decode('utf-8').split('\r')
+        #lines = open(reddit_auth_file, "r") # When passing a filepath
+        for line in lines:
             if len(line.split('=')) < 2:
                 pass
             else:
@@ -123,7 +146,7 @@ class get_auth:
                     self.client_secret = variable_value
                 elif variable_name == 'user_agent':
                     self.user_agent = variable_value                
-        f.close()             
+        #lines.close() # When passing a filepath            
 
 
 
@@ -190,7 +213,7 @@ def build_working_filename(fpath, how):
 
 
 
-def get_subreddit_list(subreddits_filepath):
+def get_subreddit_list(subreddits_file):
     """
     Reads and parses txt file containing all subreddits to include in analysis.
 
@@ -204,7 +227,9 @@ def get_subreddit_list(subreddits_filepath):
     subreddit_list: list
         List of all subreddits.
     """
-    with open(subreddits_filepath, "r") as f:
-        subreddit_list = f.read().split(',\n')
-        
-    return subreddit_list
+    
+#    with open(subreddits_file, "r") as f: # When passing a filepath 
+#        subreddit_list = f.read().split(',\n')
+    
+    return subreddits_file['Body'].read().decode('utf-8').split('\r')
+#    return subreddit_list # When passing a filepath 
