@@ -18,12 +18,17 @@ import boto3
 Set up calls to AWS S3 bucket that contains the files for Reddit API 
 authorization and the set of subreddits to pull for analysis.
 """
+
+bucket_name = 'dnmorse-reddit-predict-private-directories'
+auth_filename = 'auth.txt'
+subreddits_filename = 'subreddits.txt'
+
 s3 = boto3.resource('s3')
 
-auth_obj = s3.Object('dnmorse-reddit-predict-private-directories', 'auth.txt')
+auth_obj = s3.Object(bucket_name, auth_filename)
 auth_file = auth_obj.get()
 
-subreddits_obj = s3.Object('dnmorse-reddit-predict-private-directories', 'subreddits.txt')
+subreddits_obj = s3.Object(bucket_name, subreddits_filename)
 subreddits_file = subreddits_obj.get()
 
 
@@ -32,19 +37,17 @@ subreddits_file = subreddits_obj.get()
 working_directory = './work'
 
 def pull_posts(event, context):
+    
     num_posts = event['num_posts']
     num_top_comments = event['num_top_comments']
     how = event['how']
+    working_directory = event['working_directory']
+    
     """
     Makes API call, saves all submissions to disc for later processing.
 
     Parameters
     ----------
-    reddit_auth_file : str
-        Filename of .txt file containing Reddit API keys.
-    subreddits_fpath : str
-        Filepath pointing to text file containing ',/n' separated subreddit
-        names.
     num_posts : int
         The total number of submissions to be retrieved.
     num_top_comments : int, optional
@@ -55,28 +58,24 @@ def pull_posts(event, context):
         How the submissions are to be sorted within Reddit. The default is 
         'new'.
     working_directory: str, optional
-        The path of the directory to save the submissions
+        The path of the directory to save the submissions.
 
     Returns
     -------
-    fpath: str
-        Relative filepath where submissions were saved
-    submission_IDs: list
-        List of strings, the ID's of all posts pulled
-    auth: auth_object
-        Holds keys necessary for accessing Reddit API
-    working_directory: str
-        The directory where intermediate files will be saved  
+    fname: str
+        Unique string used to build filename.
+    IDs: list
+        List of tuples, length = number of posts pulled. First tuple entry is 
+        the ID of post, second tuple entry is the subreddit its from.
+    directory: str
+        The directory where intermediate files will be saved.
+    num_top_comments: int
+        The number of toplevel comments to use for analysis on each post.
     """
-
-    print('\nInside pull_posts.')
-    
-#    if not os.path.isdir(working_directory):
-#        os.mkdir(working_directory)
     
     # Pull Reddit API keys from file
     auth = get_auth(auth_file)
-    print('\nAuth setup.')    
+        
     # Instantiate a Reddit API call header
     reddit = praw.Reddit(client_id = auth.client_id,
                          client_secret = auth.client_secret,
@@ -86,29 +85,34 @@ def pull_posts(event, context):
     # Convert subreddits file to a string compatible with Reddit API
     subreddit_list = get_subreddit_list(subreddits_file)
     reddit_subs_to_pull = subreddit_list_to_string(subreddit_list)
-    print('\nSubreddits set.')    
+        
     # Instantiate subreddit instance. Lazy, doesn't hit API until it is used.
     subreddit_instance = getattr(reddit.subreddit(reddit_subs_to_pull),
                                  how
                                 )(limit = num_posts)
-    print('\nMaking API call.')    
+        
     # Put all submissions in to a list, this forces the API call    
     submissions = []
     submissions_IDs = []
     for subm in subreddit_instance:
         submissions.append(subm)
         submissions_IDs.append([subm.id, str(subm.subreddit)])
-    print('\nSubreddit info obtained.')
-    # Save list of Reddit submissions to disc
     
-    fpath = build_working_filename(working_directory, how)
-    pickle.dump(submissions, open(fpath, 'wb'))
-
-      
-    #return fpath, submissions_IDs, auth, working_directory
+    # Save list of Reddit submissions to disc
+    fname = build_working_filename(how)
+    fpath = os.path.join(working_directory, 'submissions_list_by' + fname)
+    posts_data_obj = pickle.dumps(submissions)
+    s3.Object(bucket_name, fpath).put(Body = posts_data_obj)
+    
+    return_dict = {'fname': fname,
+                   'directory': working_directory,
+                   'IDs': submissions_IDs,
+                   'num_top_comments': num_top_comments,
+                   #'auth': auth,
+                   }
     return {
             'statusCode': 200,
-            'body': json.dumps(auth.user_agent)
+            'body': json.dumps(return_dict),
            }
 
 
@@ -176,7 +180,7 @@ def subreddit_list_to_string(subreddit_list):
 
 
 
-def build_working_filename(fpath, how):
+def build_working_filename(how):
     """
     Builds unique filename for storage of intermediate data.
 
@@ -203,10 +207,7 @@ def build_working_filename(fpath, how):
     dtime_string = month + '-' + day + '_at_' + hour + minute + 'utc'
     
     
-    fname = os.path.join(fpath, 
-                         'submissions_list_by' + how + '_' 
-                         + dtime_string + '.p'
-                        )
+    fname = os.path.join('sortedby_' + how + '_'+ dtime_string + '.p')
     
     return fname
     
