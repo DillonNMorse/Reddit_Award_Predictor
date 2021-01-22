@@ -7,28 +7,59 @@ Created on Tue Jan 19 11:56:03 2021
 
 import pickle
 import os
+import json
 
+import boto3
 
-def combine_reddit_data(posts_fpath, comments_fpath, directory):
+""" 
+Set up call to AWS S3 bucket that contains the prepared features.
+"""
+
+bucket_name = 'dnmorse-reddit-predict-private-directories'
+auth_filename = 'auth.txt'
+
+s3 = boto3.resource('s3')
+
+def combine_reddit_data(event, context):
     
+    inputs_dict = json.loads(event[1]['body'])
 
-    posts = pickle.load(open(posts_fpath,'rb'))
-    comments = pickle.load(open(comments_fpath,'rb'))
+    
+    fname = inputs_dict['fname']
+    working_directory = inputs_dict['working_directory']
+
+    # Load submission data from file.
+    posts_feats_fpath = os.path.join(working_directory, 'posts_data_' + fname)
+    comments_fpath = os.path.join(working_directory, 'comments_data_' + fname)
+    
+    posts_obj    = s3.Object(bucket_name, posts_feats_fpath)
+    comments_obj = s3.Object(bucket_name, comments_fpath)
+    
+    posts_pickle    = posts_obj.get()['Body'].read()
+    comments_pickle = comments_obj.get()['Body'].read()
+    
+    posts = pickle.loads(posts_pickle)
+    comments = pickle.loads(comments_pickle)
     
     # Combine the two dicts, removing any posts already gilded when pulled.
-    for ID in posts:
-        num_gilds = count_gildings(posts[ID]['Gildings'])
+    combined = posts.copy()
+    for ID in combined:
+        num_gilds = count_gildings(combined[ID]['Gildings'])
         if num_gilds > 0:
-            del posts[ID]
+            del combined[ID]
         else:
-            posts[ID].update(comments[ID])
+            combined[ID].update(comments[ID])
+    
         
-    complete_dtime = posts_fpath[27:]
-    complete_fpath = os.path.join(directory, 'complete_data_' + complete_dtime)
-    pickle.dump(posts, open(complete_fpath, 'wb'))   
-        
-        
-    return
+    # Save all features to s3 bucket.
+    combined_fpath = os.path.join(working_directory, 'all_features_' + fname)
+    combined_data_obj = pickle.dumps(combined)
+    s3.Object(bucket_name, combined_fpath).put(Body = combined_data_obj)     
+    
+    
+    return {
+            'statusCode': 200,
+           }
 
 
 

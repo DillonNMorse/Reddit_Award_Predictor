@@ -67,7 +67,7 @@ def pull_posts(event, context):
     IDs: list
         List of tuples, length = number of posts pulled. First tuple entry is 
         the ID of post, second tuple entry is the subreddit its from.
-    directory: str
+    working_directory: str
         The directory where intermediate files will be saved.
     num_top_comments: int
         The number of toplevel comments to use for analysis on each post.
@@ -100,12 +100,12 @@ def pull_posts(event, context):
     
     # Save list of Reddit submissions to disc
     fname = build_working_filename(how)
-    fpath = os.path.join(working_directory, 'submissions_list_by' + fname)
+    fpath = os.path.join(working_directory, 'submissions_' + fname)
     posts_data_obj = pickle.dumps(submissions)
     s3.Object(bucket_name, fpath).put(Body = posts_data_obj)
     
     return_dict = {'fname': fname,
-                   'directory': working_directory,
+                   'working_directory': working_directory,
                    'IDs': submissions_IDs,
                    'num_top_comments': num_top_comments,
                    #'auth': auth,

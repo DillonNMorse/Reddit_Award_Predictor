@@ -8,16 +8,24 @@ Created on Fri Jan 15 17:13:31 2021
 from datetime import datetime as dt
 import pickle
 import os
+import json
 
-from retrieve_comments import get_toplevel_comment_info
+import boto3
+
+#from retrieve_comments import get_toplevel_comment_info
+
+bucket_name = 'dnmorse-reddit-predict-private-directories'
+
+s3 = boto3.resource('s3')
 
 
-
-
-def submission_features(auth,
-                        subms_fpath, 
-                        directory,
-                       ):
+def submission_features(event, context):
+    
+    inputs_dict = json.loads(event['body'])
+    
+    fname = inputs_dict['fname']
+    working_directory = inputs_dict['working_directory']
+                    
     """
     Retrieve relevent feature data from a batch of Reddit posts. The API has
     already been called for the post, so further API calls will only be invoked
@@ -25,17 +33,12 @@ def submission_features(auth,
 
     Parameters
     ----------
-    auth_dict : dict
-        Dictionary containing authorization keys for Reddit API. To be passed
-        on for retrieval of comment data.
-    submissions : list
-        List of reddit submissions to be processed.
-    num_top_comments : int, optional
-        The number of top-level comments to include in the analysis. The 
-        default is 15.
-    api_feat : dict, optional
-        Dictionary containing mappings between Reddit submission feature names
-        and the names to be used here. The default is api_feat.
+
+    working_directory: str
+        String naming the directory within the AWS s3 bucket where data is 
+        stored.
+    fname: str
+        Unique string used to build filename.
 
     Returns
     -------
@@ -47,7 +50,11 @@ def submission_features(auth,
     """
     
     # Load submission data from file.
-    submissions = pickle.load(open(subms_fpath, 'rb'))
+    #submissions = pickle.load(open(subms_fpath, 'rb'))
+    submissions_fpath = os.path.join(working_directory, 'submissions_' + fname)
+    data_obj = s3.Object(bucket_name, submissions_fpath)
+    submissions_pickle = data_obj.get()['Body'].read()
+    submissions = pickle.loads(submissions_pickle)
     
     # Dictionary containing names for API featues.
     api_feat = api_feature_names()
@@ -93,12 +100,14 @@ def submission_features(auth,
                                              /features[subm.id]['Post age']
                                             )
       
-    # Save post features to disc.
-    posts_dtime = subms_fpath[27:]
-    posts_fpath = os.path.join(directory, 'posts_data_' + posts_dtime)
-    pickle.dump(features, open(posts_fpath, 'wb'))    
+    # Save all post features to s3 bucket.
+    features_fpath = os.path.join(working_directory, 'posts_data_' + fname)
+    features_data_obj = pickle.dumps(features)
+    s3.Object(bucket_name, features_fpath).put(Body = features_data_obj)    
     
-    return posts_fpath
+    return  {
+            'statusCode': 200,
+            }
 
 
 

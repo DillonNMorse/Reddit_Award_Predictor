@@ -5,24 +5,77 @@ Created on Fri Jan 15 17:13:31 2021
 @author: Dillo
 """
 
-import requests
+
 from datetime import datetime as dt
 import json
 import pickle
 import os
 
+import boto3
+import requests
+
+""" 
+Set up call to AWS S3 bucket that contains the file for Reddit API 
+authorization.
+"""
+
+bucket_name = 'dnmorse-reddit-predict-private-directories'
+auth_filename = 'auth.txt'
+
+s3 = boto3.resource('s3')
+
+auth_obj = s3.Object(bucket_name, auth_filename)
+auth_file = auth_obj.get()
 
 
-def  process_all_posts_comments(subms_fpath, subm_IDs, auth, directory):
+
+def  process_all_posts_comments(event, context):
     
-    #Wrapper for get_toplevel_comment_info, iterates through submission ID's 
+    inputs_dict = json.loads(event['body'])
+
+    fname = inputs_dict['fname']
+    subm_IDs =  inputs_dict['IDs']
+    working_directory = inputs_dict['working_directory']
+    num_top_comments = inputs_dict['num_top_comments']
+    
+    """
+    Wrapper for get_toplevel_comment_info, iterates through submission ID's
+    and packages processed comment data in to a dictionary, then saved to
+    AWS s3 bucket.
+
+    Parameters
+    ----------
+    working_directory: str
+        String naming the directory within the AWS s3 bucket where data is 
+        stored.
+    fname: str
+        Unique string used to build filename.
+    subm_IDs: list
+        List of tuples, length = number of posts pulled. First tuple entry is 
+        the ID of post, second tuple entry is the subreddit its from. 
+     num_top_comments: int
+         The number of toplevel comments, sorted in Reddit by upovtes,
+         descending, to use per Reddit post.
+
+    Returns
+    -------
+    dict
+        Dictionary containing comment features for all posts. Keys are post
+        ID, values are dictionaries containing features for corresponding post.
+
+    """
+    
+    # Pull Reddit API keys from file
+    auth = get_auth(auth_file)
+    
     comments_dict = {}
     for subm in subm_IDs:
         submission_id = subm[0]
         subm_subreddit = subm[1] 
         comment_data = get_toplevel_comment_info(auth,
                                                  submission_id,
-                                                 subm_subreddit
+                                                 subm_subreddit,
+                                                 num_top_comments
                                                 )
         
         # Store post data to a dictionary
@@ -34,12 +87,18 @@ def  process_all_posts_comments(subms_fpath, subm_IDs, auth, directory):
         comments_dict[submission_id]['op_comment_rate'] = comment_data[4]
         comments_dict[submission_id]['premium_auth_rate'] = comment_data[5]
         
-    # Save to disc
-    comms_dtime = subms_fpath[27:]
-    comms_fpath = os.path.join(directory, 'comment_data_' + comms_dtime)
-    pickle.dump(comments_dict, open(comms_fpath, 'wb'))
+
+    # Save all comment features to s3 bucket.
+    comments_fpath = os.path.join(working_directory, 'comments_data_' + fname)
+    comments_data_obj = pickle.dumps(comments_dict)
+    s3.Object(bucket_name, comments_fpath).put(Body = comments_data_obj)  
     
-    return comms_fpath
+    return {
+            'statusCode': 200,
+            'body': json.dumps({'fname': fname,
+                                'working_directory': working_directory
+                                }),
+            }
 
 
 
@@ -180,15 +239,15 @@ def comment_value(data, feature):
 
     Parameters
     ----------
-    data : TYPE
-        DESCRIPTION.
-    feature : TYPE
-        DESCRIPTION.
+    data : dict
+        Dictionary containing all data about a particular comment.
+    feature : str
+        String indicating the particular feature to be extracted.
 
     Returns
     -------
-    value : TYPE
-        DESCRIPTION.
+    value : (str or int or float)
+        The value for the feature of interest for the particular comment.
 
     """
     
@@ -203,3 +262,40 @@ def comment_value(data, feature):
     except KeyError:
         value = 0   
     return value
+
+
+
+
+class get_auth:
+    """
+    Convert a txt file containing Reddit API keys in to an authorization
+    object containing necessary keys, etc.
+
+    Parameters
+    ----------
+    reddit_auth_file : str
+        Filepath of .txt file containing Reddit keys, see sample_auth.txt
+
+    Returns
+    -------
+    auth : auth_object
+        Authorization object with properites needed to access the Reddit API.
+    """
+
+    def __init__(self, reddit_auth_file):
+        lines = reddit_auth_file['Body'].read().decode('utf-8').split('\r')
+        #lines = open(reddit_auth_file, "r") # When passing a filepath
+        for line in lines:
+            if len(line.split('=')) < 2:
+                pass
+            else:
+                variable_name = line.split('=')[0].strip()
+                variable_value = line.split('=')[1].strip()
+                
+                if variable_name == 'client_id':
+                    self.client_id = variable_value
+                elif variable_name == 'client_secret':
+                    self.client_secret = variable_value
+                elif variable_name == 'user_agent':
+                    self.user_agent = variable_value                
+        #lines.close() # When passing a filepath 
