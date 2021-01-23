@@ -14,20 +14,6 @@ import os
 import boto3
 import requests
 
-""" 
-Set up call to AWS S3 bucket that contains the file for Reddit API 
-authorization.
-"""
-
-bucket_name = 'dnmorse-reddit-predict-private-directories'
-auth_filename = 'auth.txt'
-
-s3 = boto3.resource('s3')
-
-auth_obj = s3.Object(bucket_name, auth_filename)
-auth_file = auth_obj.get()
-
-
 
 def  process_all_posts_comments(event, context):
     
@@ -37,6 +23,9 @@ def  process_all_posts_comments(event, context):
     subm_IDs =  inputs_dict['IDs']
     working_directory = inputs_dict['working_directory']
     num_top_comments = inputs_dict['num_top_comments']
+    bucket_name = inputs_dict['bucket_name']
+    auth_filename = inputs_dict['auth_filename']
+    staging_directory = inputs_dict['staging_directory']
     
     """
     Wrapper for get_toplevel_comment_info, iterates through submission ID's
@@ -56,15 +45,36 @@ def  process_all_posts_comments(event, context):
      num_top_comments: int
          The number of toplevel comments, sorted in Reddit by upovtes,
          descending, to use per Reddit post.
+    bucket_name : str
+        The name of the AWS s3 bucket containing data.
+    auth_filename : str
+        The name of the txt file containing Reddit API keys, stored within the 
+        root of the bucket named above. 
 
     Returns
     -------
     dict
         Dictionary containing comment features for all posts. Keys are post
         ID, values are dictionaries containing features for corresponding post.
-
     """
     
+    
+    
+    
+    """ 
+    Set up call to AWS S3 bucket that contains the file for Reddit API 
+    authorization.
+    """
+    s3 = boto3.resource('s3')
+    
+    auth_obj = s3.Object(bucket_name, auth_filename)
+    auth_file = auth_obj.get()
+    
+    
+    
+    """
+    Begin function.
+    """
     # Pull Reddit API keys from file
     auth = get_auth(auth_file)
     
@@ -91,13 +101,18 @@ def  process_all_posts_comments(event, context):
     # Save all comment features to s3 bucket.
     comments_fpath = os.path.join(working_directory, 'comments_data_' + fname)
     comments_data_obj = pickle.dumps(comments_dict)
-    s3.Object(bucket_name, comments_fpath).put(Body = comments_data_obj)  
+    s3.Object(bucket_name, comments_fpath).put(Body = comments_data_obj) 
+    
+    return_dict = {'fname': fname,
+                   'working_directory': working_directory,
+                   'bucket_name': bucket_name,
+                   'staging_directory': staging_directory,
+                   'auth_filename': auth_filename
+                  }
     
     return {
             'statusCode': 200,
-            'body': json.dumps({'fname': fname,
-                                'working_directory': working_directory
-                                }),
+            'body': json.dumps(return_dict)
             }
 
 

@@ -14,9 +14,8 @@ import boto3
 
 #from retrieve_comments import get_toplevel_comment_info
 
-bucket_name = 'dnmorse-reddit-predict-private-directories'
 
-s3 = boto3.resource('s3')
+
 
 
 def submission_features(event, context):
@@ -25,6 +24,7 @@ def submission_features(event, context):
     
     fname = inputs_dict['fname']
     working_directory = inputs_dict['working_directory']
+    bucket_name = inputs_dict['bucket_name']
                     
     """
     Retrieve relevent feature data from a batch of Reddit posts. The API has
@@ -39,6 +39,8 @@ def submission_features(event, context):
         stored.
     fname: str
         Unique string used to build filename.
+    bucket_name : str
+        The name of the AWS s3 bucket containing data.
 
     Returns
     -------
@@ -49,11 +51,24 @@ def submission_features(event, context):
 
     """
     
-    # Load submission data from file.
-    #submissions = pickle.load(open(subms_fpath, 'rb'))
+    
+    
+    
+    """ 
+    Set up call to AWS S3 bucket that contains the pulled Reddit post data.
+    """
+    s3 = boto3.resource('s3')
     submissions_fpath = os.path.join(working_directory, 'submissions_' + fname)
     data_obj = s3.Object(bucket_name, submissions_fpath)
     submissions_pickle = data_obj.get()['Body'].read()
+    
+    
+    
+    
+    """
+    Begin function.
+    """
+    # Load submission data from file.
     submissions = pickle.loads(submissions_pickle)
     
     # Dictionary containing names for API featues.
@@ -81,6 +96,7 @@ def submission_features(event, context):
         except AttributeError:
             features[subm.id]['Subreddit'] = None
         
+        features[subm.id]['Created utc'] = subm.created_utc
         # Convert UTC timestamp to time of day (in minutes since beginning of 
         #   UTC day)
         dtime_posted = dt.utcfromtimestamp(features[subm.id]['Post time'])

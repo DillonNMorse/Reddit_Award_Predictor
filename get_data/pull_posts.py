@@ -13,35 +13,12 @@ import json
 import praw
 import boto3
 
-
-""" 
-Set up calls to AWS S3 bucket that contains the files for Reddit API 
-authorization and the set of subreddits to pull for analysis.
-"""
-
-bucket_name = 'dnmorse-reddit-predict-private-directories'
-auth_filename = 'auth.txt'
-subreddits_filename = 'subreddits.txt'
-
-s3 = boto3.resource('s3')
-
-auth_obj = s3.Object(bucket_name, auth_filename)
-auth_file = auth_obj.get()
-
-subreddits_obj = s3.Object(bucket_name, subreddits_filename)
-subreddits_file = subreddits_obj.get()
-
-
-
-
-working_directory = './work'
-
+# The primary lambda_function. 
 def pull_posts(event, context):
     
     num_posts = event['num_posts']
     num_top_comments = event['num_top_comments']
     how = event['how']
-    working_directory = event['working_directory']
     
     """
     Makes API call, saves all submissions to disc for later processing.
@@ -57,9 +34,6 @@ def pull_posts(event, context):
     how : str, optional
         How the submissions are to be sorted within Reddit. The default is 
         'new'.
-    working_directory: str, optional
-        The path of the directory to save the submissions.
-
     Returns
     -------
     fname: str
@@ -73,6 +47,56 @@ def pull_posts(event, context):
         The number of toplevel comments to use for analysis on each post.
     """
     
+    
+    
+
+    """
+    Variables that define the locations of resources within s3 buckets. They
+    are included in the Lambda function as environmental variables.
+    Parameters
+    ----------
+    bucket_name : str
+        The name of the bucket within AWS s3 that the project will be working 
+        out of.
+    auth_filename : str
+        The filename (including extension) of the .txt file containing Reddit
+        API keys. See sample_auth.txt for required layout.
+    subreddits_filename : str
+        The filename (including extension) where the list of subreddits to be
+        included is stored. See subreddits.txt
+    working_directory : str 
+        The name of the directory within the AWS s3 bucket where intermediate
+        data will be stored for processing.
+    staging_directory: str
+        The name of the directory within the AWS s3 bucket where data will be
+        stored after gilds have been fetched, before appending in batches to 
+        the database.
+    """
+    bucket_name = os.environ['bucket_name']
+    auth_filename = os.environ['auth_filename']
+    subreddits_filename = os.environ['subreddits_filename']
+    working_directory = os.environ['working_directory']
+    staging_directory = os.environ['staging_directory']
+    
+    
+    
+    """ 
+    Set up calls to AWS S3 bucket that contains the files for Reddit API 
+    authorization and the set of subreddits to pull for analysis.
+    """    
+    s3 = boto3.resource('s3')
+    
+    auth_obj = s3.Object(bucket_name, auth_filename)
+    auth_file = auth_obj.get()
+    
+    subreddits_obj = s3.Object(bucket_name, subreddits_filename)
+    subreddits_file = subreddits_obj.get()
+
+    
+
+    """
+    Begin function.
+    """
     # Pull Reddit API keys from file
     auth = get_auth(auth_file)
         
@@ -108,7 +132,9 @@ def pull_posts(event, context):
                    'working_directory': working_directory,
                    'IDs': submissions_IDs,
                    'num_top_comments': num_top_comments,
-                   #'auth': auth,
+                   'auth_filename': auth_filename,
+                   'bucket_name': bucket_name,
+                   'staging_directory': staging_directory
                    }
     return {
             'statusCode': 200,
@@ -207,7 +233,7 @@ def build_working_filename(how):
     dtime_string = month + '-' + day + '_at_' + hour + minute + 'utc'
     
     
-    fname = os.path.join('sortedby_' + how + '_'+ dtime_string + '.p')
+    fname = os.path.join('sortedby_' + how + '_'+ dtime_string + '.pkl')
     
     return fname
     
@@ -229,8 +255,5 @@ def get_subreddit_list(subreddits_file):
         List of all subreddits.
     """
     
-#    with open(subreddits_file, "r") as f: # When passing a filepath 
-#        subreddit_list = f.read().split(',\n')
-    
     return subreddits_file['Body'].read().decode('utf-8').split('\r')
-#    return subreddit_list # When passing a filepath 
+ 
