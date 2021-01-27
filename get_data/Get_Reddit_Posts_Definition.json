@@ -2,81 +2,43 @@
   "Comment": "Obtain data from Reddit.",
   "StartAt": "Pull Posts",
   "States": {
-      "Pull Posts": {
-      "Type": "Task",
-      "Resource": "arn:aws:lambda:us-east-1:637522287615:function:Reddit_Pull_Posts",
-      "Retry": [ {
-                  "ErrorEquals": [ "States.ALL" ],
-                  "IntervalSeconds": 30,
-                  "MaxAttempts": 2,
-                  "BackoffRate": 1.5
-                  } ],
-      "Next": "Process_Data"
-    },
-      "Process_Data": {
-      "Type": "Parallel",
-      "Branches":[ 
-        {
-          "StartAt": "Extract Post Features",
-          "States": {
-            "Extract Post Features": {
-              "Type": "Task",
-              "Resource": "arn:aws:lambda:us-east-1:637522287615:function:Reddit_Extract_Post_Features",
-              "Retry": [ {
-                         "ErrorEquals": [ "States.ALL" ],
-                         "IntervalSeconds": 30,
-                         "MaxAttempts": 2,
-                         "BackoffRate": 1.5
-                         } ],
-              "End": true
-            }
-          }
-        },
-        {
-          "StartAt": "Retrieve Comment Data",
-          "States": {
-            "Retrieve Comment Data":{
-              "Type": "Task",
-              "Resource": "arn:aws:lambda:us-east-1:637522287615:function:Reddit_Process_Comments",
-              "Retry": [ {
-                         "ErrorEquals": [ "States.ALL" ],
-                         "IntervalSeconds": 30,
-                         "MaxAttempts": 2,
-                         "BackoffRate": 1.5
-                         } ],
-              "End": true
-            }
-          }
-        }
-      ],
-      "Next": "Combine"
-    },
-      "Combine":{
-      "Type":"Task",
-      "Resource": "arn:aws:lambda:us-east-1:637522287615:function:Reddit_Combine_Data",
-      "Retry": [ {
-                  "ErrorEquals": [ "States.ALL" ],
-                  "IntervalSeconds": 30,
-                  "MaxAttempts": 2,
-                  "BackoffRate": 1.5
-                  } ], 
-      "Next": "Pause for Gilds"
-    },
-    "Pause for Gilds":{
-    "Type": "Wait",
-    "Seconds": 86400,
-    "Next": "Fetch Gilds"
-                      },
+	"Pull Posts": {
+			"Type": "Task",
+			"Resource": "arn:aws:lambda:us-east-1:637522287615:function:Reddit_Pull_Posts",
+			"Retry": [ {
+						"ErrorEquals": [ "States.ALL" ],
+						"IntervalSeconds": 30,
+						"MaxAttempts": 2,
+						"BackoffRate": 1.5
+					} ],
+			"Next": "Retrieve Comment Data"
+			},
+    "Retrieve Comment Data":{
+			"Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:637522287615:function:Reddit_Process_Comments",
+            "Retry": [ {
+                        "ErrorEquals": [ "States.ALL" ],
+                        "IntervalSeconds": 30,
+                        "MaxAttempts": 2,
+                        "BackoffRate": 1.5
+                    } ],
+            "Next": "Pause for Gilds"
+			},
+	"Pause for Gilds":{
+			"Type": "Wait",
+			"Seconds": 86400,
+			"Next": "Fetch Gilds"
+			},
     "Fetch Gilds":{
-    "Type": "Task",
-    "Resource": "arn:aws:lambda:us-east-1:637522287615:function:Reddit_Fetch_Gilds",
-    "Retry": [ {
-                "ErrorEquals": [ "States.ALL" ],
-                "IntervalSeconds": 30,
-                "MaxAttempts": 2,
-                "BackoffRate": 1.5
+		"Type": "Task",
+		"Resource": "arn:aws:lambda:us-east-1:637522287615:function:Reddit_Fetch_Gilds",
+		"Retry": [ {
+					"ErrorEquals": [ "States.ALL" ],
+					"IntervalSeconds": 30,
+					"MaxAttempts": 2,
+					"BackoffRate": 1.5
                 } ],
-    "End": true
-  }
- }
+		"End": true
+		}
+	}
 }

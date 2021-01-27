@@ -19,10 +19,10 @@ def fetch_gilds(event, context):
 
     fname = inputs_dict['fname']
     bucket_name = inputs_dict['bucket_name']
-    working_directory = inputs_dict['working_directory']
+    #working_directory = inputs_dict['working_directory']
     auth_filename = inputs_dict['auth_filename']
     staging_directory = inputs_dict['staging_directory']
-    
+    all_features = inputs_dict['all_features']
     
     """ 
     Set up call to AWS S3 bucket that contains the file for Reddit API 
@@ -34,12 +34,14 @@ def fetch_gilds(event, context):
     auth_obj = s3.Object(bucket_name, auth_filename)
     auth_file = auth_obj.get()
     
-    # Load combined Reddit posts data
-    submissions_fpath = os.path.join(working_directory,
-                                     'all_features_' + fname
-                                    )
-    data_obj = s3.Object(bucket_name, submissions_fpath)
-    submissions_pickle = data_obj.get()['Body'].read()    
+# =============================================================================
+#     # Load combined Reddit posts data
+#     submissions_fpath = os.path.join(working_directory,
+#                                      'all_features_' + fname
+#                                     )
+#     data_obj = s3.Object(bucket_name, submissions_fpath)
+#     submissions_pickle = data_obj.get()['Body'].read()    
+# =============================================================================
     
     
     
@@ -48,7 +50,7 @@ def fetch_gilds(event, context):
     Begin function.
     """
     # Load submission data from file.
-    submissions = pickle.loads(submissions_pickle)
+    #submissions = pickle.loads(all_features_pickle)
     
     # Pull Reddit API keys from file
     auth = get_auth(auth_file)
@@ -60,7 +62,7 @@ def fetch_gilds(event, context):
                          )    
     
     # Get IDs of all Reddit posts
-    IDs = list(submissions.keys())
+    IDs = list(all_features.keys())
     
     # Build list of fullnames and get data for all - will automatically call
     #   Reddit API in batches to optimize speed.
@@ -68,7 +70,27 @@ def fetch_gilds(event, context):
     posts = reddit.info(fullname_list) 
 
     # Iterate over Reddit posts and extract Gilds data    
-    gilding_data = {}
+    new_data = get_gilds_and_upvotes(posts)
+ 
+    # Add gilding data to submissions data
+    data_with_gilds = all_features.copy()
+    for ID in data_with_gilds:
+        data_with_gilds[ID].update(new_data[ID])
+    
+    # Save all features to s3 bucket.
+    gilded_data_fpath = os.path.join(staging_directory, 'gilded_data_' + fname)
+    gilded_data_obj = pickle.dumps(data_with_gilds)
+    s3.Object(bucket_name, gilded_data_fpath).put(Body = gilded_data_obj)     
+    
+    return {
+            'statusCode': 200,
+           }
+
+
+
+
+def get_gilds_and_upvotes(posts):
+    new_data = {}
     for post in posts:      
         post_gilds = post.gildings      
         try:
@@ -84,24 +106,15 @@ def fetch_gilds(event, context):
         except KeyError:
             platinums = 0
         
-        gilding_data[post.id] = {}
-        gilding_data[post.id]['Silver awarded'] = silvers
-        gilding_data[post.id]['Gold awarded'] = golds
-        gilding_data[post.id]['Platinum awarded'] = platinums    
- 
-    # Add gilding data to submissions data
-    data_with_gilds = submissions.copy()
-    for ID in data_with_gilds:
-        data_with_gilds[ID].update(gilding_data[ID])
+        new_data[post.id] = {}
+        new_data[post.id]['Silver awarded'] = silvers
+        new_data[post.id]['Gold awarded'] = golds
+        new_data[post.id]['Platinum awarded'] = platinums
+        
+        new_data[post.id]['Final upvotes'] = post.ups
+        new_data[post.id]['Final num comments'] = post.num_comments
     
-    # Save all features to s3 bucket.
-    gilded_data_fpath = os.path.join(staging_directory, 'gilded_data_' + fname)
-    gilded_data_obj = pickle.dumps(data_with_gilds)
-    s3.Object(bucket_name, gilded_data_fpath).put(Body = gilded_data_obj)     
-    
-    return {
-            'statusCode': 200,
-           }
+    return new_data
 
 
 

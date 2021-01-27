@@ -8,8 +8,8 @@ Created on Fri Jan 15 17:13:31 2021
 
 from datetime import datetime as dt
 import json
-import pickle
-import os
+#import pickle
+#import os
 
 import boto3
 import requests
@@ -20,12 +20,13 @@ def  process_all_posts_comments(event, context):
     inputs_dict = json.loads(event['body'])
 
     fname = inputs_dict['fname']
-    subm_IDs =  inputs_dict['IDs']
-    working_directory = inputs_dict['working_directory']
+    #subm_IDs =  inputs_dict['IDs']
+    #working_directory = inputs_dict['working_directory']
     num_top_comments = inputs_dict['num_top_comments']
     bucket_name = inputs_dict['bucket_name']
     auth_filename = inputs_dict['auth_filename']
     staging_directory = inputs_dict['staging_directory']
+    posts_features = inputs_dict['posts_features']
     
     """
     Wrapper for get_toplevel_comment_info, iterates through submission ID's
@@ -75,6 +76,17 @@ def  process_all_posts_comments(event, context):
     """
     Begin function.
     """
+    
+    
+    
+    #subm_IDs = posts_features.keys() #[post['ID'] for post in posts_features]
+    subm_IDs = []
+    for post_id in posts_features:
+        Subreddit = posts_features[post_id]['Subreddit']
+        subm_IDs.append([post_id, Subreddit])
+
+    print('\nID is: ', subm_IDs[0][0])
+    print('Subreddit is: ', subm_IDs[0][1], '\n')
     # Pull Reddit API keys from file
     auth = get_auth(auth_file)
     
@@ -99,21 +111,56 @@ def  process_all_posts_comments(event, context):
         
 
     # Save all comment features to s3 bucket.
-    comments_fpath = os.path.join(working_directory, 'comments_data_' + fname)
-    comments_data_obj = pickle.dumps(comments_dict)
-    s3.Object(bucket_name, comments_fpath).put(Body = comments_data_obj) 
+    #comments_fpath = os.path.join(working_directory, 'comments_data_' + fname)
+    #comments_features_pickle = pickle.dumps(comments_dict)
+    #s3.Object(bucket_name, comments_fpath).put(Body = comments_data_obj) 
+    
+    
+    # Combine the two dicts, ignore any posts already gilded when pulled.
+    combined = {}
+    for ID in posts_features:
+        num_gilds = count_gildings(posts_features[ID]['Gildings'])
+        if num_gilds == 0:
+            combined[ID] = posts_features[ID]
+            combined[ID].update(comments_dict[ID])
+
+        
+
     
     return_dict = {'fname': fname,
-                   'working_directory': working_directory,
+                   #'working_directory': working_directory,
                    'bucket_name': bucket_name,
                    'staging_directory': staging_directory,
-                   'auth_filename': auth_filename
+                   'auth_filename': auth_filename,
+                   #'comments_features': comments_dict
+                   'all_features':combined,
                   }
     
     return {
             'statusCode': 200,
             'body': json.dumps(return_dict)
             }
+
+
+
+
+def count_gildings(gild_dict):
+    
+    # Count number of gold plus platinums awarded
+    try:
+        silvers = gild_dict['gid_1']
+    except KeyError:
+        silvers = 0
+    try:
+        golds = gild_dict['gid_2']
+    except KeyError:
+        golds = 0
+    try:
+        platinums = gild_dict['gid_3']
+    except KeyError:
+        platinums = 0
+        
+    return golds + platinums
 
 
 
