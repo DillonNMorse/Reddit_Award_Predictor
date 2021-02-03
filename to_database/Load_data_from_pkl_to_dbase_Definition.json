@@ -1,0 +1,56 @@
+{
+  "Comment": "Iterate through s3 bucket and add all data from files to posgresql database",
+  "StartAt": "Get all file names",
+  "States": {
+    "Get all file names": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:637522287615:function:Get_All_Fnames_From_S3",
+      "Next": "Add top file to database"
+    },
+    "Add top file to database": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:637522287615:function:Add_Top_File_To_Dbase",
+      "Next": "Was there an error?"
+    },
+    "Was there an error?":{
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.error",
+          "BooleanEquals": true,
+          "Next": "Move file to error folder"
+        },
+        {
+          "Variable": "$.error",
+          "BooleanEquals": false,
+          "Next": "Move file to completed folder"
+        }
+      ]
+    },
+    "Move file to error folder":{
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:637522287615:function:Move_Error_Files",
+      "Next": "Is list empty?"
+    },
+    "Move file to completed folder":{
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:637522287615:function:Move_Completed_Files",
+      "Next": "Is list empty?"
+    },
+    "Is list empty?":{
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.num_names_left",
+          "NumericEquals": 0,
+          "Next": "Done"
+        }
+      ],
+      "Default": "Add top file to database"
+    },
+    "Done":{
+      "Type": "Pass",
+      "End": true
+    }
+  }
+}
