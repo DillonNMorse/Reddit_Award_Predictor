@@ -1,0 +1,9 @@
+ENDPOINT = <<your table endpoint>>
+PORT = <<your port (5432 for Postgresql)>>
+USR = <<your username>>
+REGION = <<your aws region>>
+DBNAME = <<your database name>>
+DBPWD = <<your database password>>
+
+
+# Do not include any quotations/apostrophes for the various string values
