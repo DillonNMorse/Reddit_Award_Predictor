@@ -4,7 +4,7 @@ lambda_code_packages/
 lambda_code_package/
 auth.txt
 database_auth.txt
-*.ipynb
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
