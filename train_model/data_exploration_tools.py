@@ -30,9 +30,7 @@ def handle_unique_columns(df):
 
 def get_all_useless_cols(df):
     
-    useless_cols = ['author', 'id', 'created_utc', 
-                    'silver_awarded', 'gold_awarded', 'platinum_awarded',
-                   'post_time',]
+    useless_cols = ['id', 'created_utc', 'gold_awarded', 'platinum_awarded']
     for col in df.columns:
         try:
             num_unique_entries = len(df[col].unique())
