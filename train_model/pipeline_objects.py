@@ -6,16 +6,365 @@ Created on Mon Feb 15 13:54:13 2021
 """
 
 from datetime import datetime as dt
+import pickle
+import os
 
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 import pandas as pd
+import numpy as np
+import boto3
+
 from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.metrics import precision_score, recall_score, roc_curve, auc, precision_recall_curve
-#from imblearn.over_sampling import SMOTE
-#from imblearn.under_sampling import RandomUnderSampler
-from matplotlib.collections import LineCollection
-import numpy as np
+
+
+
+# =============================================================================
+# GetData
+# PrepData
+# MyTargetEncoder
+# MultipurposeEncoder
+# MyProbBuilder
+# MakeEvaluationPlots
+# =============================================================================
+
+def build_dbase_info_dict(info_txt_file_str):
+    """
+    Load txt file in to dict, to pass to GetData init. 
+
+    Parameters
+    ----------
+    info_txt_file_str : str
+        The fullpath of the txt file containing AWS database auth and info.
+
+    Returns
+    -------
+    database_info : dict
+        Dictionary, keys are auth/info variable names.
+
+    """
+    
+    with open(info_txt_file_str, 'r') as f:
+        database_info = {}
+        for line in f:
+            var_name = line.split('=')[0].strip()
+            var_value = line.split('=')[1].strip()
+            database_info[var_name] = var_value
+
+    return database_info
+
+
+
+
+class GetData():
+    
+    def __init__(self, database_info_dict):
+        
+        self.database_info_dict = database_info_dict
+        self.cluster_arn = database_info_dict['cluster_arn']
+        self.secret_arn = database_info_dict['secret_arn']
+        self.database = database_info_dict['database']
+        self.schema = database_info_dict['schema']
+        self.tablename = database_info_dict['tablename']
+
+
+
+    def make_sql_query(self, sql):
+        """
+        Query the database with the given sql string
+
+        Parameters
+        ----------
+        sql : string
+            String containing sql query.
+
+        Returns
+        -------
+        response : dict
+            Dictionary from database containing both the query response and the
+            metadata for the query.
+
+        """
+        
+        rdsData = boto3.client('rds-data')
+
+        response = rdsData.execute_statement(resourceArn =self.cluster_arn,
+                                             includeResultMetadata =  True,
+                                             secretArn = self.secret_arn,
+                                             database = self.database,
+                                             schema = self.schema,
+                                             sql = sql
+                                             )    
+        return response     
+
+
+
+
+    def define_features(self):
+        """
+        Define and return the columns to be included in the sql query SELECT 
+        statement
+
+        Returns
+        -------
+        features : str
+            String containing all column names in the SELECT statement.
+
+        """
+        
+        features = '''contest_mode, edited, adult_content, oc, 
+                      content_categories, reddit_media, selfpost, video,
+                      subreddit, how_sorted, distinguished, upvotes,
+                      upvote_ratio, crossposts, comments,  post_age,
+                      upvote_rate,  comment_rate, avg_up_rate, std_up_rate,
+                      gild_rate, distinguished_rate, op_comment_rate,
+                      premium_auth_rate, initial_silver, id, created_utc, 
+                      gold_awarded, platinum_awarded, final_upvotes,
+                      final_num_comments, title
+                      '''
+                      
+        return features
+
+
+
+
+    def get_scrape_metadata(self):
+        """
+        Retrieve list of all scrape-metadata identifiers, this populates a list
+        on which the entire table can be segmented so as to retrieve the
+        data in < 1mb chunks.
+
+        Returns
+        -------
+        list
+            List of strings, each corresponding to a separate scrape event 
+            within AWS. Every instance is labelled with one such scrape
+            metadata tag. 
+
+        """
+        
+        scrape_metadata_query = '''SELECT DISTINCT SUBSTRING(id, 8) 
+                                    FROM reddit.RedditPostsData'''
+        response = self.make_sql_query(scrape_metadata_query)
+        
+        return [list(line[0].values())[0] for line in response['records']] 
+
+
+
+
+    def build_get_data_query(self, set_of_ids_to_query):
+        """
+        Build the full query string when calling the sql database.
+
+        Parameters
+        ----------
+        set_of_ids_to_query : list
+            List of strings, the scrape metadata tags to be included in this
+            particular query. This acts as a limit to the number of rows that
+            are queried at once in order to limit the response size.
+
+        Returns
+        -------
+        SQL_query_string : str
+            String containing the full sql query to be made.
+
+        """
+        
+        SQL_query_string = ("""SELECT {} 
+                               FROM {}.{} 
+                               WHERE SUBSTRING(id,8) in {}"""
+                               .format(self.define_features(),
+                                       self.schema,
+                                       self.tablename,
+                                       tuple(set_of_ids_to_query)
+                                       ))
+        return SQL_query_string
+
+
+
+
+    def get_all_data(self, num_in_query_block = 16):
+        """
+        Pulls all current data database, as controlled by the features() string
+        which is input in to the SELECT statement. Iterates over all sets of
+        scrape metadata tags, ensuring that each individual call stays beneath
+        the AWS response size.
+
+        Parameters
+        ----------
+        num_in_query_block : int, default=16
+            The number of unique scrape metadata tags to be included in each
+            individual query. More tags means fewer queries, but more tags also
+            increases the response size. Set largely by trial and error. If 
+            AWS (via boto3) returns an exception, drop this value.
+
+        Returns
+        -------
+        df : pandas.DataFrame
+            A dataframe containing all the data queried.
+
+        """
+        
+        scrape_metadata = self.get_scrape_metadata()
+        
+        num_of_ids = len(scrape_metadata)
+        query_block_idxs = np.arange(0, num_of_ids, num_in_query_block)
+        
+        
+        build_query = self.build_get_data_query
+        make_query = self.make_sql_query
+        
+        all_data = []
+        for block_num, lower_idx in enumerate(query_block_idxs):
+            upper_idx = lower_idx + num_in_query_block
+            set_of_ids_to_query = scrape_metadata[lower_idx:upper_idx]
+            
+            sql = build_query(set_of_ids_to_query)
+            response = make_query(sql)
+            new_data = [[list(feature.values())[0] for feature in record] 
+                        for record in response['records']
+                        ]
+            all_data += new_data
+            
+            if block_num == 0:
+                col_names = [column['name'] for column 
+                             in response['columnMetadata']
+                             ]
+            
+            print('Block {} of {} completed.'.format(block_num + 1,
+                                                     len(query_block_idxs)
+                                                   ))
+                
+        df = pd.DataFrame(all_data)
+        df.columns = col_names
+    
+        return df
+
+
+
+
+    def build_fstring(self, data_directory):
+        """
+        Build a string for saving/loading a particular dataframe from disk,
+        includes the data that the query was made as well as the directory
+        where the data should be saved to / loaded from.
+
+        Parameters
+        ----------
+        data_directory : str
+            The directory where data is located, relative to current working
+            directory.
+
+        Returns
+        -------
+        fstring : str
+            A string with both the directory and unique filename.
+
+        """
+        
+        day = dt.today().day
+        month = dt.today().month
+        year = dt.today().year
+
+        dt_str = 'reddit_data_{}-{}-{}'.format(month, day, year)
+        
+        fstring = os.path.join(data_directory, dt_str)       
+          
+        return fstring
+
+
+
+
+    def data_to_disk(self, data_directory = os.path.join('.','data'),
+                     num_in_query_block = 16
+                     ):
+        """
+        Pull data from database and save data to disk.
+
+        Parameters
+        ----------
+        data_directory : str, default='./data'
+            The directory where the data is to be saved, relative to current
+            working directory.
+        num_in_query_block : int, default=16
+            The number of unique scrape metadata tags to be included in each
+            individual query. More tags means fewer queries, but more tags also
+            increases the response size. Set largely by trial and error. If 
+            AWS (via boto3) returns an exception, drop this value.
+
+        Returns
+        -------
+        None.
+
+        """
+        
+        df = self.get_all_data(num_in_query_block)
+        fstring = self.build_fstring(data_directory)
+        df.to_pickle(fstring)
+        
+        return None
+
+
+
+
+    def load_data(self, data_directory = os.path.join('.','data'),
+                     num_in_query_block = 16, fstring = ''
+                     ):
+        """
+        Load data if it exists, otherwise query the database and save results
+        to disk, then load.
+
+        Parameters
+        ----------
+        data_directory : str, default='./data'
+            DESCRIPTION. The default is os.path.join('.','data').
+        num_in_query_block : int, default=16
+            The number of unique scrape metadata tags to be included in each
+            individual query. More tags means fewer queries, but more tags also
+            increases the response size. Set largely by trial and error. If 
+            AWS (via boto3) returns an exception, drop this value.
+        fstring : str, default=''
+            An alternate fstring (directory and filename) to be loaded, if it
+            exists. Currently cannot build the file unless it corresponds to 
+            todays data.
+
+        Raises
+        ------
+        Exception
+            Try 3 times to load/build the data, if not return exception.
+
+        Returns
+        -------
+        df : pandas.DataFrame
+            A dataframe containing all data in database, limited only by the
+            features used in SELECT statement.
+
+        """
+        if len(fstring) == 0: 
+            fstring = self.build_fstring(data_directory)       
+        
+        file_loaded = False
+        counter = 0
+        while not file_loaded:
+            try:
+               df = pd.read_pickle(fstring)
+               file_loaded = True
+            except:
+                print('Attempting to query database to build data file.')    
+                self.data_to_disk()
+                counter += 1
+            
+            if counter >= 3:
+                raise Exception('File cannot be loaded')
+           
+        return df
+
+
+
+
+
 
 
 class PrepData(BaseEstimator, TransformerMixin):

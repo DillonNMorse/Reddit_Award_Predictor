@@ -4,6 +4,8 @@ lambda_code_packages/
 lambda_code_package/
 auth.txt
 database_auth.txt
+database_info.txt
+reddit_data_*
 
 
 # Byte-compiled / optimized / DLL files
