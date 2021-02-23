@@ -9,7 +9,11 @@ from datetime import datetime as dt
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 import pandas as pd
+
+from sklearn.metrics import precision_score, recall_score, roc_curve, auc
+from sklearn.metrics import precision_recall_curve
 
 
 
@@ -71,6 +75,8 @@ numeric_feats = ['upvotes', 'upvote_ratio', 'crossposts',
 
 
 target_feat = ['gilded']
+
+
 
 
 
@@ -207,3 +213,184 @@ class Categ_Analysis:
         probability = chi2.sf(chi_squared, DF)
 
         return chi_squared, probability
+    
+    
+    
+    
+def make_evaluation_plots(clf, X_train, y_train, X_test, y_test, thresh = 0.5):
+    
+    gild_train_probas = [x[1] for x in clf.predict_proba(X_train)]    
+    precision_train, recall_train, thresh_pr_train =\
+        precision_recall_curve(y_train, gild_train_probas)
+    fpr_train, tpr_train, thresh_roc_train =\
+        roc_curve(y_train, gild_train_probas)
+    predictions_train = [True if x > thresh else False 
+                         for x in gild_train_probas
+                         ]  
+
+    roc_auc_score_train = auc(fpr_train, tpr_train)
+    pr_auc_train = auc(recall_train, precision_train)
+    prec_train = precision_score(y_train, predictions_train)
+    reca_train = recall_score(y_train, predictions_train)
+
+    ratio_train = sum(predictions_train)/len(predictions_train)
+    train_stats = ('''Threshold: {}\n        Ratio: {:.2f}%\n\n Precision: {:.1f}%\n      Recall: {:.1f}%\n         AUC: {:.3f}'''
+                   .format(thresh,
+                           ratio_train*100,
+                           prec_train*100,
+                           reca_train*100,
+                           pr_auc_train
+                           )
+                  )
+    no_skill_train = y_train.sum()/len(y_train)
+
+    
+    
+    
+    gild_test_probas = [x[1] for x in clf.predict_proba(X_test)]    
+    precision_test, recall_test, thresh_pr_test =\
+        precision_recall_curve(y_test, gild_test_probas)
+    fpr_test, tpr_test, thresh_roc_test = roc_curve(y_test, gild_test_probas)
+    predictions_test = [True if x > thresh else False 
+                        for x in gild_test_probas
+                        ]
+    
+    roc_auc_score_test = auc(fpr_test, tpr_test)
+    pr_auc_test = auc(recall_test, precision_test)
+    prec_test = precision_score(y_test, predictions_test)
+    reca_test = recall_score(y_test, predictions_test)
+
+    ratio_test = sum(predictions_test)/len(predictions_test)
+    test_stats = ('''Threshold: {}\n        Ratio: {:.2f}%\n\n Precision: {:.1f}%\n      Recall: {:.1f}%\n         AUC: {:.3f}'''
+                   .format(thresh,
+                           ratio_test*100,
+                           prec_test*100,
+                           reca_test*100,
+                           pr_auc_test
+                           )
+                  )
+    no_skill_test = y_test.sum()/len(y_test)
+
+
+
+
+    fig, ((ax1, ax2, ax3),(ax4, ax5, ax6)) =plt.subplots(2,3,figsize = (15,10))
+    plt.subplots_adjust(wspace=None, hspace=0.4)
+    
+    ax1.hist(gild_train_probas)
+    ax1.set_yscale('log')
+    ax1.set_xlabel('Predicted Probability of Being Gilded')
+    ax1.set_ylabel('Number of Posts')
+
+
+
+    points = np.array([recall_train[:-1], precision_train[:-1]]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    norm = plt.Normalize(thresh_pr_train.min(), thresh_pr_train.max())
+    lc = LineCollection(segments, cmap='viridis', norm=norm)
+    # Set the values used for colormapping
+    lc.set_array(thresh_pr_train)
+    lc.set_linewidth(4)
+    line = ax2.add_collection(lc)
+    fig.colorbar(line, ax=ax2)
+# =============================================================================
+#     pr_train = ax2.scatter(recall_train[:-1],
+#                            precision_train[:-1],
+#                            c = thresh_pr_train,
+#                            label = ('Area under curve: {:.2f}'
+#                                     .format(pr_auc_train)
+#                                     )
+#                           )
+# =============================================================================
+    ax2.plot([0, 1],
+             [no_skill_train, no_skill_train],
+             color = 'navy', lw = 3, linestyle='--',
+             label='No Skill'
+             )
+    ax2.text(0.48, 0.65,
+             train_stats,
+             bbox={'facecolor': 'steelblue', 'alpha': 0.1, 'pad': 10},
+             transform = ax2.transAxes
+             )
+    ax2.set_xlabel('Recall')
+    ax2.set_ylabel('Precision')
+    #plt.colorbar(pr_train, ax=ax2)
+    #ax2.legend(loc = 'upper right')
+    ax2.set_title('Training Data', fontsize = 18)
+    
+    roc_train = ax3.plot(fpr_train,
+                         tpr_train,
+                         lw = 3,
+                         color='darkorange',
+                         label = 'Area under ROC curve: {:.2f}'
+                                  .format(roc_auc_score_train)
+                        )
+    ax3.legend(loc="lower right")
+    ax3.plot([0, 1], [0, 1], color='navy', lw=3, linestyle='--')
+    ax3.set_xlabel('False Positive Rate')
+    ax3.set_ylabel('True Positive Rate')
+
+    
+    
+    
+    
+    
+    ax4.hist(gild_test_probas)
+    ax4.set_yscale('log')
+    ax4.set_xlabel('Predicted Probability of Being Gilded')
+    ax4.set_ylabel('Number of Posts')
+    
+
+    points = np.array([recall_test[:-1], precision_test[:-1]]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    norm = plt.Normalize(thresh_pr_test.min(), thresh_pr_test.max())
+    lc = LineCollection(segments, cmap='viridis', norm=norm)
+    # Set the values used for colormapping
+    lc.set_array(thresh_pr_test)
+    lc.set_linewidth(4)
+    line = ax5.add_collection(lc)
+    fig.colorbar(line, ax=ax5)
+
+
+
+# =============================================================================
+#     pr_test = ax5.plot(recall_test[:-1],
+#                            precision_test[:-1],
+#                            c = thresh_pr_test,
+#                            label = ('Area under curve: {:.2f}'
+#                                     .format(pr_auc_test)
+#                                     )
+#                           )
+# =============================================================================
+    ax5.plot([0, 1],
+         [no_skill_test, no_skill_test],
+         color = 'navy', lw = 3, linestyle='--',
+         label='No Skill'
+         )
+    ax5.text(0.48, 0.65,
+             test_stats,
+             bbox={'facecolor': 'steelblue', 'alpha': 0.1, 'pad': 10},
+             transform = ax5.transAxes
+             )
+    ax5.set_xlabel('Recall')
+    ax5.set_ylabel('Precision')
+    #plt.colorbar(pr_test, ax=ax5)
+    #ax5.legend(loc = 'upper right')
+    ax5.set_title('Test Data', fontsize = 18)
+    
+    roc_test = ax6.plot(fpr_test,
+                         tpr_test,
+                         lw = 3,
+                         color='darkorange',
+                         label = ('Area under ROC curve: {:.2f}'
+                                  .format(roc_auc_score_test)
+                                  )
+                        )
+    ax6.legend(loc="lower right")
+    ax6.plot([0, 1], [0, 1], color='navy', lw=3, linestyle='--')
+    ax6.set_xlabel('False Positive Rate')
+    ax6.set_ylabel('True Positive Rate')
+    
+    plt.show()    
+    
+    return

@@ -10,14 +10,12 @@ import pickle
 import os
 
 import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
 import pandas as pd
 import numpy as np
 import boto3
 
 from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin
 from sklearn.preprocessing import OneHotEncoder
-from sklearn.metrics import precision_score, recall_score, roc_curve, auc, precision_recall_curve
 
 
 
@@ -27,7 +25,6 @@ from sklearn.metrics import precision_score, recall_score, roc_curve, auc, preci
 # MyTargetEncoder
 # MultipurposeEncoder
 # MyProbBuilder
-# MakeEvaluationPlots
 # =============================================================================
 
 def build_dbase_info_dict(info_txt_file_str):
@@ -232,10 +229,10 @@ class GetData():
                 col_names = [column['name'] for column 
                              in response['columnMetadata']
                              ]
-            
-            print('Block {} of {} completed.'.format(block_num + 1,
-                                                     len(query_block_idxs)
-                                                   ))
+            if (block_num + 1)%5 == 0:
+                print('Block {} of {} completed.'.format(block_num + 1,
+                                                         len(query_block_idxs)
+                                                       ))
                 
         df = pd.DataFrame(all_data)
         df.columns = col_names
@@ -550,6 +547,18 @@ class PrepData(BaseEstimator, TransformerMixin):
 
 
 class MyTargetEncoder(BaseEstimator, TransformerMixin):
+    """
+    Target-encode the passed feature columns. Allow the encoding values to be
+    smoothed in order to minimize over-fitting of relatively rare instances.
+    
+    Set the weight larger to increase the smoothing (bringing all encoding 
+    values nearer to the overall-target average), this dispraporionately
+    affects category values which have a total number of occurences less than
+    or near the weight value - those values with a large number of occurences
+    are less affected.
+    
+    Setting weight to 0 is equivalent to 'vanilla' target encoding.
+    """
     
     def __init__(self, how = 'vanilla', weight = 1):
         
@@ -600,7 +609,14 @@ class MyTargetEncoder(BaseEstimator, TransformerMixin):
     
     
 
+
+
+
 class MultipurposeEncoder(BaseEstimator, TransformerMixin):
+    """
+    Encode the passed columns, allow user to specify which columns (if any)
+    should be one-hot-encoded and which should be target-encoded.
+    """
     
     def __init__(self, ohe_feats = [], target_feats = [],
                  target_how = 'vanilla', target_weight = 1,
@@ -661,13 +677,13 @@ class MultipurposeEncoder(BaseEstimator, TransformerMixin):
         
             df[self.target_feats] = target_df
         
-        
+        #print('All columns: ', list(df.columns))
         return df
 
 
 
 
-class MyProbBuilder():
+class MyProbBuilder(BaseEstimator, ClassifierMixin):
     """
     Bin data by given features and calculate the ratio of positive target
     values to all values within each bin, can be interpreted as analgous to the 
@@ -891,24 +907,28 @@ class MyProbBuilder():
 
         Returns
         -------
-        predict_proba : series
-            Series of floats, the historical fraction of gilded posts
-            corresponding to each instance in X.
+        predict_proba : np.array
+            Array of floats, column 1 containing the historical fraction of 
+            gilded posts corresponding to each instance in X, columns zero 
+            containing one minus this number (the fraction of non-gilded
+            posts historically).
 
         """
         n_cont = len(self.continuous_col_names)
         n_disc = len(self.discrete_col_names)
         
         if n_cont > 0:
-            X_cont_bin_nums = X[self.continuous_col_names].apply(lambda x: 
-                                                    self._vals_to_bin_num(x),
-                                                    axis = 1
-                                                                )
+            value_to_bin = self._vals_to_bin_num
+            cont_col_names = self.continuous_col_names
+            X_cont_bin_nums = X[cont_col_names].apply(lambda x:
+                                                      value_to_bin(x),
+                                                      axis = 1
+                                                      )
         
         if n_cont == 1:
-            X_cont_bin_nums.name = self.continuous_col_names[0]
+            X_cont_bin_nums.name = cont_col_names[0]
         elif n_cont > 1:
-            X_cont_bin_nums.columns = self.continuous_col_names
+            X_cont_bin_nums.columns = cont_col_names
         
         if n_disc > 0:
             X_discrete = X.copy()[self.discrete_col_names]
@@ -922,12 +942,13 @@ class MyProbBuilder():
         elif (n_cont == 0) & (n_disc == 0):
             raise Exception('Nothing is happening! Give me some features.')
         
-        self.predict_proba = X_all.apply(lambda x: 
-                             self.binned_data.loc[tuple(x)]['target_fraction'], 
+        binned_dat = self.binned_data
+        self.probas = X_all.apply(lambda x: 
+                             binned_dat.loc[tuple(x)]['target_fraction'], 
                              axis = 1
                              )
         
-        return self.predict_proba
+        return np.array([[1-x,x] for x in self.probas])
 
 
 
@@ -953,13 +974,13 @@ class MyProbBuilder():
 
         """
         
-        if self.predict_proba:
-            pass
-        else:
-            self.probas(X)
+        try:
+            probabilities = [x[1] for x in self.probas]
+        except:
+            probabilities = [x[1] for x in self.predict_proba(X)]
         
         
-        predictions = np.random.binomial(1, self.predict_proba)
+        predictions = np.random.binomial(1, probabilities)
         
         return predictions
 
@@ -1008,180 +1029,53 @@ class MyProbBuilder():
 
 
 
-def make_evaluation_plots(clf, X_train, y_train, X_test, y_test, thresh = 0.5):
+
+class AddNewFeatures(BaseEstimator, TransformerMixin):
     
-    gild_train_probas = [x[1] for x in clf.predict_proba(X_train)]    
-    precision_train, recall_train, thresh_pr_train =\
-        precision_recall_curve(y_train, gild_train_probas)
-    fpr_train, tpr_train, thresh_roc_train =\
-        roc_curve(y_train, gild_train_probas)
-    predictions_train = [True if x > thresh else False 
-                         for x in gild_train_probas
-                         ]  
-
-    roc_auc_score_train = auc(fpr_train, tpr_train)
-    pr_auc_train = auc(recall_train, precision_train)
-    prec_train = precision_score(y_train, predictions_train)
-    reca_train = recall_score(y_train, predictions_train)
-
-    ratio_train = sum(predictions_train)/len(predictions_train)
-    train_stats = ('''Threshold: {}\n        Ratio: {:.2f}%\n\n Precision: {:.1f}%\n      Recall: {:.1f}%\n         AUC: {:.3f}'''
-                   .format(thresh,
-                           ratio_train*100,
-                           prec_train*100,
-                           reca_train*100,
-                           pr_auc_train
-                           )
-                  )
-    no_skill_train = y_train.sum()/len(y_train)
+    def __init__(self, feat_names = [], weight = 1):
+        
+        self.feat_names = feat_names
+        self.weight = weight
+        
+    def fit(self, X, y):
+        
+        if 'Priors_Fractions' in self.feat_names:
+            self.priors_clf = MyProbBuilder(['subreddit', 'post_hour'],
+                                            ['upvote_rate'],
+                                            5,
+                                            ).fit(X, y)
+        
+        return self
 
     
     
-    
-    gild_test_probas = [x[1] for x in clf.predict_proba(X_test)]    
-    precision_test, recall_test, thresh_pr_test =\
-        precision_recall_curve(y_test, gild_test_probas)
-    fpr_test, tpr_test, thresh_roc_test = roc_curve(y_test, gild_test_probas)
-    predictions_test = [True if x > thresh else False 
-                        for x in gild_test_probas
-                        ]
-    
-    roc_auc_score_test = auc(fpr_test, tpr_test)
-    pr_auc_test = auc(recall_test, precision_test)
-    prec_test = precision_score(y_test, predictions_test)
-    reca_test = recall_score(y_test, predictions_test)
-
-    ratio_test = sum(predictions_test)/len(predictions_test)
-    test_stats = ('''Threshold: {}\n        Ratio: {:.2f}%\n\n Precision: {:.1f}%\n      Recall: {:.1f}%\n         AUC: {:.3f}'''
-                   .format(thresh,
-                           ratio_test*100,
-                           prec_test*100,
-                           reca_test*100,
-                           pr_auc_test
-                           )
-                  )
-    no_skill_test = y_test.sum()/len(y_test)
-
-
-
-
-    fig, ((ax1, ax2, ax3),(ax4, ax5, ax6)) =plt.subplots(2,3,figsize = (15,10))
-    plt.subplots_adjust(wspace=None, hspace=0.4)
-    
-    ax1.hist(gild_train_probas)
-    ax1.set_yscale('log')
-    ax1.set_xlabel('Predicted Probability of Being Gilded')
-    ax1.set_ylabel('Number of Posts')
-
-
-
-    points = np.array([recall_train[:-1], precision_train[:-1]]).T.reshape(-1, 1, 2)
-    segments = np.concatenate([points[:-1], points[1:]], axis=1)
-    norm = plt.Normalize(thresh_pr_train.min(), thresh_pr_train.max())
-    lc = LineCollection(segments, cmap='viridis', norm=norm)
-    # Set the values used for colormapping
-    lc.set_array(thresh_pr_train)
-    lc.set_linewidth(4)
-    line = ax2.add_collection(lc)
-    fig.colorbar(line, ax=ax2)
-# =============================================================================
-#     pr_train = ax2.scatter(recall_train[:-1],
-#                            precision_train[:-1],
-#                            c = thresh_pr_train,
-#                            label = ('Area under curve: {:.2f}'
-#                                     .format(pr_auc_train)
-#                                     )
-#                           )
-# =============================================================================
-    ax2.plot([0, 1],
-             [no_skill_train, no_skill_train],
-             color = 'navy', lw = 3, linestyle='--',
-             label='No Skill'
-             )
-    ax2.text(0.48, 0.65,
-             train_stats,
-             bbox={'facecolor': 'steelblue', 'alpha': 0.1, 'pad': 10},
-             transform = ax2.transAxes
-             )
-    ax2.set_xlabel('Recall')
-    ax2.set_ylabel('Precision')
-    #plt.colorbar(pr_train, ax=ax2)
-    #ax2.legend(loc = 'upper right')
-    ax2.set_title('Training Data', fontsize = 18)
-    
-    roc_train = ax3.plot(fpr_train,
-                         tpr_train,
-                         lw = 3,
-                         color='darkorange',
-                         label = 'Area under ROC curve: {:.2f}'
-                                  .format(roc_auc_score_train)
-                        )
-    ax3.legend(loc="lower right")
-    ax3.plot([0, 1], [0, 1], color='navy', lw=3, linestyle='--')
-    ax3.set_xlabel('False Positive Rate')
-    ax3.set_ylabel('True Positive Rate')
-
+    def transform(self, X, y = None):
+        
+        X_new = X.copy()
+        
+        if 'Priors_Fractions' in self.feat_names:  
+            #probs = self.priors_clf.predict_proba(X)
+            #X_new['prior_frac'] = [x[1] for x in probs]
+            predictions = self.priors_clf.predict(X)
+            X_new['priors_predict'] = predictions
+            
+            
+        
+        if 'Log_of_Features_Distance' in self.feat_names:
+            axis_weights = [1, self.weight]
+            min_upv = min([x if x > 0 else 10e5 for x in X['upvote_rate']])
+            X_new['offset_upv']= X['upvote_rate'] + min_upv/10
+            new_feat =  X_new.apply(lambda x: axis_weights[0]*np.log(x['offset_upv'])**2 
+                                    + axis_weights[1]*np.log(x['post_age'])**2,
+                                    axis = 1
+                                    )
+            X_new['log_feature'] = new_feat
+            X_new.drop(columns = ['offset_upv', 'post_age'], inplace = True)
+        return X_new
     
     
     
     
     
-    ax4.hist(gild_test_probas)
-    ax4.set_yscale('log')
-    ax4.set_xlabel('Predicted Probability of Being Gilded')
-    ax4.set_ylabel('Number of Posts')
     
-
-    points = np.array([recall_test[:-1], precision_test[:-1]]).T.reshape(-1, 1, 2)
-    segments = np.concatenate([points[:-1], points[1:]], axis=1)
-    norm = plt.Normalize(thresh_pr_test.min(), thresh_pr_test.max())
-    lc = LineCollection(segments, cmap='viridis', norm=norm)
-    # Set the values used for colormapping
-    lc.set_array(thresh_pr_test)
-    lc.set_linewidth(4)
-    line = ax5.add_collection(lc)
-    fig.colorbar(line, ax=ax5)
-
-
-
-# =============================================================================
-#     pr_test = ax5.plot(recall_test[:-1],
-#                            precision_test[:-1],
-#                            c = thresh_pr_test,
-#                            label = ('Area under curve: {:.2f}'
-#                                     .format(pr_auc_test)
-#                                     )
-#                           )
-# =============================================================================
-    ax5.plot([0, 1],
-         [no_skill_test, no_skill_test],
-         color = 'navy', lw = 3, linestyle='--',
-         label='No Skill'
-         )
-    ax5.text(0.48, 0.65,
-             test_stats,
-             bbox={'facecolor': 'steelblue', 'alpha': 0.1, 'pad': 10},
-             transform = ax5.transAxes
-             )
-    ax5.set_xlabel('Recall')
-    ax5.set_ylabel('Precision')
-    #plt.colorbar(pr_test, ax=ax5)
-    #ax5.legend(loc = 'upper right')
-    ax5.set_title('Test Data', fontsize = 18)
     
-    roc_test = ax6.plot(fpr_test,
-                         tpr_test,
-                         lw = 3,
-                         color='darkorange',
-                         label = ('Area under ROC curve: {:.2f}'
-                                  .format(roc_auc_score_test)
-                                  )
-                        )
-    ax6.legend(loc="lower right")
-    ax6.plot([0, 1], [0, 1], color='navy', lw=3, linestyle='--')
-    ax6.set_xlabel('False Positive Rate')
-    ax6.set_ylabel('True Positive Rate')
-    
-    plt.show()    
-    
-    return
