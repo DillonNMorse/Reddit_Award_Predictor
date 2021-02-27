@@ -1070,7 +1070,7 @@ class AddNewFeatures(BaseEstimator, TransformerMixin):
                                     axis = 1
                                     )
             X_new['log_feature'] = new_feat
-            X_new.drop(columns = ['offset_upv', 'post_age'], inplace = True)
+            X_new.drop(columns = ['offset_upv'], inplace = True)
         return X_new
     
     
