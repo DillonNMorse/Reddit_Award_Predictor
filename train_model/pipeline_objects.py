@@ -25,6 +25,7 @@ from sklearn.preprocessing import OneHotEncoder
 # MyTargetEncoder
 # MultipurposeEncoder
 # MyProbBuilder
+# DropFeatures
 # =============================================================================
 
 def build_dbase_info_dict(info_txt_file_str):
@@ -418,7 +419,7 @@ class PrepData(BaseEstimator, TransformerMixin):
         #   any features which have a cardinality of one.
         # Can set *drop_feats = False* to completely bypass this step.
         if type(self.drop_feats) == type([]):
-            some_useless_cols = ['id', 'created_utc', 'gold_awarded', 
+            some_useless_cols = ['created_utc', 'gold_awarded', 
                                  'platinum_awarded', 'scrape_time'
                                 ]
             for feature in self.drop_feats:
@@ -1078,4 +1079,26 @@ class AddNewFeatures(BaseEstimator, TransformerMixin):
     
     
     
+class DropFeatures():
     
+    def __init__(self, features_to_drop):
+        
+        self.features_to_drop = features_to_drop
+        
+    
+    def fit(self, X = None, y = None):
+        return self
+    
+    def transform(self, X, y = None):
+        
+        X_new = X.copy()
+        for feature in self.features_to_drop:
+            try:
+                X_new.drop(columns = [feature], inplace = True)
+            except KeyError:
+                pass
+
+        return X_new
+        
+        
+        
